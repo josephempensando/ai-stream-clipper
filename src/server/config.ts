@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { analysisSettingsSchema } from '../shared/validation.js';
 const require = createRequire(import.meta.url);
 const ffmpegStatic: unknown = require('ffmpeg-static');
 const ffprobeStatic: { path: string } = require('ffprobe-static');
@@ -23,6 +24,8 @@ export const config = {
   ollamaModel: process.env.OLLAMA_MODEL || 'llama3.2:3b', vision: process.env.OLLAMA_VISION === 'true',
   ollamaTimeout: positive('OLLAMA_TIMEOUT_MS', 180_000),
   ollamaContextTokens: positive('OLLAMA_NUM_CTX', 4096, 131072),
+  ...analysisSettingsSchema.parse({ durationMode: process.env.DURATION_MODE || 'auto', clipCount: process.env.HIGHLIGHT_COUNT || 5 }),
+  maxHighlightSilenceSeconds: positive('MAX_HIGHLIGHT_SILENCE_SECONDS', 8),
   maxBytes: positive('MAX_UPLOAD_GB', 20, 100) * 1024 ** 3,
   approvedHosts: (process.env.APPROVED_MEDIA_HOSTS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean),
   twitchClientId: process.env.TWITCH_CLIENT_ID || '', twitchSecret: process.env.TWITCH_CLIENT_SECRET || '',

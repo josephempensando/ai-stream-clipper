@@ -8,7 +8,7 @@ import { analyzeRecording, type PipelineAdapters } from '../src/server/pipeline.
 import type { Candidate, Highlight, Job } from '../src/shared/types.js';
 import { OllamaRankingError } from '../src/server/models.js';
 
-const highlight = (c: Candidate): Highlight => ({ ...c, start: c.cues![0]!.start, end: c.cues![0]!.start + 0.5, score: 90, title: 'Reaction', explanation: 'A supported complete reaction.' });
+const highlight = (c: Candidate): Highlight => ({ ...c, start: c.cues![0]!.start, end: c.cues![0]!.end, score: 90, title: 'Reaction', explanation: 'A supported complete reaction.' });
 async function fixture() {
   const root = path.resolve('test-artifacts', `recovery-${randomUUID()}`); await mkdir(root, { recursive: true });
   const file = path.join(root, 'owned.mp4');
@@ -26,7 +26,7 @@ test('duplicate IDs in a batch recover with isolated candidates and bounded retr
     return [{ ...highlight(c), id: attempt === 1 ? 'invented-id' : c.id }];
   } };
   const result = await analyzeRecording(f.job, f.file, f.root, async () => {}, adapters);
-  assert.deepEqual(result.highlights.map(h => [h.start, h.end]), [[0, 0.5], [1, 1.5], [2, 2.5]]);
+  assert.deepEqual(result.highlights.map(h => [h.start, h.end]), [[0, 1], [1, 2], [2, 3]]);
   assert.ok([...attempts.values()].every(count => count === 2));
   assert.ok(result.warnings.some(w => /retr|smaller|isolat/i.test(w)));
 });

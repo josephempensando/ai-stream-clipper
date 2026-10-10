@@ -4,6 +4,11 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { Job } from '../shared/types.js';
 import { setTimeout as delay } from 'node:timers/promises';
+import { normalizeRights } from '../shared/rights.js';
+import type { SourceRights } from '../shared/rights.js';
+import { highlightDetails } from '../shared/highlights.js';
+import { config } from './config.js';
+import { analysisSettingsSchema } from '../shared/validation.js';
 
 export async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
@@ -26,6 +31,7 @@ export async function hashFile(file: string): Promise<string> {
 }
 export class JobStore {
   readonly jobs = new Map<string, Job>();
+  private readonly writes = new Map<string, Promise<void>>();
   constructor(readonly root: string) {}
   dir(id: string): string {
     if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('Invalid job ID.');
@@ -39,6 +45,12 @@ export class JobStore {
       if (!/^[0-9a-f-]{36}$/.test(id)) continue;
       const job = await readJson<Job>(path.join(this.dir(id), 'job.json'));
       if (!job) continue;
+      job.rights = normalizeRights(job.rights);
+      job.durationMode = 'auto';
+      const settings = analysisSettingsSchema.safeParse({ clipCount: job.clipCount ?? config.clipCount ?? 5 });
+      job.clipCount = settings.success ? settings.data.clipCount ?? 5 : config.clipCount ?? 5;
+      delete job.highlightPolicy;
+      job.highlights = job.highlights.map(highlightDetails);
       this.jobs.set(id, job);
       if (['queued', 'analyzing', 'rendering'].includes(job.status)) {
         job.status = 'error'; job.error = 'Server restarted during processing. Retry analysis or rendering; cached work is retained.';
@@ -46,6 +58,21 @@ export class JobStore {
       }
     }
   }
-  async save(job: Job): Promise<void> { this.jobs.set(job.id, job); await writeJson(path.join(this.dir(job.id), 'job.json'), job); }
+  private async serialize(id: string, operation: () => Promise<void>): Promise<void> {
+    const previous = this.writes.get(id) || Promise.resolve();
+    const task = previous.catch(() => {}).then(operation); this.writes.set(id, task);
+    try { await task; } finally { if (this.writes.get(id) === task) this.writes.delete(id); }
+  }
+  async save(job: Job): Promise<void> {
+    this.jobs.set(job.id, job);
+    await this.serialize(job.id, () => writeJson(path.join(this.dir(job.id), 'job.json'), job));
+  }
+  async saveRights(id: string, rights: SourceRights): Promise<void> {
+    await this.serialize(id, async () => {
+      const job = this.get(id); const previous = job.rights; job.rights = rights;
+      try { await writeJson(path.join(this.dir(id), 'job.json'), job); }
+      catch (error) { if (previous) job.rights = previous; else delete job.rights; throw error; }
+    });
+  }
   get(id: string): Job { const job = this.jobs.get(id); if (!job) throw new Error('Job not found.'); return job; }
 }

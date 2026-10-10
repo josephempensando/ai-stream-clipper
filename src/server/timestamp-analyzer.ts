@@ -38,7 +38,7 @@ export class TimestampAnalyzer {
     if (this.activeTranscript) throw new TwitchApiError('Another transcript is being ranked locally. Wait for it to finish before retrying.', 429, 10);
     this.activeTranscript = true;
     try {
-      const key = createHash('sha256').update(JSON.stringify({ version: 'transcript-natural-ranges-v3', platform: source.platform, video: source.id, duration: source.duration, segments: transcript.segments, model: config.transcriptOllamaModel })).digest('hex');
+      const key = createHash('sha256').update(JSON.stringify({ version: 'transcript-natural-ranges-v4', platform: source.platform, video: source.id, duration: source.duration, segments: transcript.segments, model: config.transcriptOllamaModel, maxSilenceSeconds: config.maxHighlightSilenceSeconds })).digest('hex');
       const file = path.join(this.root, 'analyzer-cache', `${key}.json`);
       let ranked = await readJson<Highlight[]>(file) || [];
       try { ranked = validateCachedRankings(ranked, candidates, true); }
@@ -68,7 +68,7 @@ export class TimestampAnalyzer {
       base.status = base.highlights.length === 5 && ranked.length === candidates.length ? 'ready' : base.highlights.length ? 'partial' : 'unavailable';
       base.confidence = base.highlights.length ? 'transcript-supported' : 'unavailable';
       base.confidenceExplanation = 'Ollama chooses natural start/end boundaries from user-supplied transcript cues, within the official video duration, without a fixed clip length. Entertainment scores are local-model judgments, not calibrated probabilities. No audiovisual analysis occurred.';
-      base.warnings.push('Transcript timing and association with this video are supplied by you; automatic verification against video/audio is unavailable.', 'Analysis samples up to 120 overlapping contexts of about three minutes and 6,000 text characters; longer moments crossing context boundaries may be missed. Short gaps of up to eight seconds may occur inside a context.');
+      base.warnings.push('Transcript timing and association with this video are supplied by you; automatic verification against video/audio is unavailable.', 'Analysis samples up to 120 overlapping contexts bounded by 6,000 text characters, without a duration cap; longer moments crossing context boundaries may be missed. Short gaps of up to eight seconds may occur inside a context.');
       if (base.highlights.length < 5) base.warnings.push(`Selected ${base.highlights.length} non-overlapping highlights, prioritizing the strongest complete moments over filling five slots.`);
       return base;
     } finally { this.activeTranscript = false; }

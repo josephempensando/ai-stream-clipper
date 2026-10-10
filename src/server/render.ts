@@ -8,6 +8,8 @@ import { writeJson } from './store.js';
 import { runProcess } from './process.js';
 import { config } from './config.js';
 import { ffmpegQueue } from './media.js';
+import { assessRights, normalizeRights } from '../shared/rights.js';
+import { highlightDetails } from '../shared/highlights.js';
 
 export function videoFilter(options: RenderOptions): string {
   if (options.layout === 'crop') return `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(iw-1080)*${options.cropX}:0,setsar=1[outv]`;
@@ -27,11 +29,21 @@ export async function renderClips(job: Job, source: string, dir: string, edits: 
     if (options.subtitles) {
       const srt = `${stem}.srt`; await writeFile(path.join(dir, srt), createSrt(transcript.segments, edit.start, edit.end));
       // Relative safe generated names avoid Windows drive-letter filter escaping.
-      await ffmpegQueue.run(() => runProcess(config.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-i', `${stem}.partial.mp4`, '-vf', `subtitles=${srt}:force_style='FontSize=20,Outline=2,MarginV=60'`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2', '-c:a', 'copy', '-movflags', '+faststart', file], { cwd: dir }));
+      // Match subtitle coordinates to the export: SRT's default 384x288 script
+      // otherwise magnifies both the font and bottom margin in portrait video.
+      const style = 'PlayResX=1080,PlayResY=1920,FontName=Arial,FontSize=48,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginL=80,MarginR=80,MarginV=120';
+      await ffmpegQueue.run(() => runProcess(config.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-i', `${stem}.partial.mp4`, '-vf', `subtitles=${srt}:force_style='${style}'`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2', '-c:a', 'copy', '-movflags', '+faststart', file], { cwd: dir }));
     } else await rename(part, target);
     outputs.push({ id: edit.id, start: edit.start, end: edit.end, title: job.highlights.find(h => h.id === edit.id)!.title, file });
   }
-  const exportedHighlights = edits.map(e => ({ ...job.highlights.find(h => h.id === e.id)!, start: e.start, end: e.end, vodStart: e.start + job.vodOffset, vodEnd: e.end + job.vodOffset }));
-  await writeJson(path.join(dir, 'results.json'), { version: 1, jobId: job.id, source: job.source, name: job.name, mediaHash: job.mediaHash, vodId: job.vodId, vodOffset: job.vodOffset, models: { whisper: transcript.model, ollama: transcript.model === 'test-double' ? 'test-double' : config.ollamaModel, vision: config.vision }, resolution: '1080x1920', options, warnings: job.warnings, highlights: exportedHighlights, outputs });
+  const exportedHighlights = edits.map(e => ({ ...highlightDetails({ ...job.highlights.find(h => h.id === e.id)!, start: e.start, end: e.end, transcript: transcript.segments.filter(s => s.end > e.start && s.start < e.end).map(s => s.text).join(' ') }), vodStart: e.start + job.vodOffset, vodEnd: e.end + job.vodOffset }));
+  await writeJson(path.join(dir, 'results.json'), {
+    version: 1, jobId: job.id, source: job.source, name: job.name, mediaHash: job.mediaHash,
+    vodId: job.vodId, vodOffset: job.vodOffset, durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount ?? 5,
+    models: { whisper: transcript.model, ollama: transcript.model === 'test-double' ? 'test-double' : config.ollamaModel, vision: config.vision },
+    resolution: '1080x1920', options, warnings: job.warnings, highlights: exportedHighlights, outputs,
+    purpose: 'draft', rights: normalizeRights(job.rights), rightsAssessment: assessRights(job.rights), rightsSnapshotAt: new Date().toISOString(),
+    notice: 'Draft rendering does not establish publishing rights or legal clearance.',
+  });
   return outputs;
 }

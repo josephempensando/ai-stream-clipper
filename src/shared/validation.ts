@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const MAX_HIGHLIGHT_COUNT = 20;
+export const analysisSettingsSchema = z.object({ durationMode: z.literal('auto').default('auto'), clipCount: z.coerce.number().int().min(1).max(MAX_HIGHLIGHT_COUNT).optional() });
+
 export function parseVodId(input: string): string {
   const value = input.trim();
   if (/^\d+$/.test(value)) return value;
@@ -14,15 +17,15 @@ export function parseVodId(input: string): string {
   return id;
 }
 export const renderSchema = z.object({
-  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive() })).min(1).max(5),
+  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive() })).min(1).max(MAX_HIGHLIGHT_COUNT),
   options: z.object({ layout: z.enum(['blur', 'crop']), cropX: z.number().min(0).max(1), subtitles: z.boolean() }),
 });
 export function validateEdits(clips: { id: string; start: number; end: number }[], duration: number): void {
-  if (!clips.length || clips.length > 5 || !Number.isFinite(duration) || duration <= 0) throw new Error('Select one to five clips.');
+  if (!clips.length || clips.length > MAX_HIGHLIGHT_COUNT || !Number.isFinite(duration) || duration <= 0) throw new Error(`Select one to ${MAX_HIGHLIGHT_COUNT} clips.`);
   const ids = new Set<string>();
   const ordered = [...clips].sort((a, b) => a.start - b.start);
   for (const [index, clip] of ordered.entries()) {
-    if (!clip.id || ids.has(clip.id) || !Number.isFinite(clip.start) || !Number.isFinite(clip.end) || clip.start < 0 || clip.end > duration + 0.01 || clip.end <= clip.start) {
+    if (!clip.id || ids.has(clip.id) || !Number.isFinite(clip.start) || !Number.isFinite(clip.end) || clip.start < 0 || clip.end > duration || clip.end <= clip.start) {
       throw new Error('Each clip must have an end after its start, within the recording, with a unique ID.');
     }
     if (index > 0 && clip.start < ordered[index - 1]!.end) throw new Error('Selected clips must not overlap.');

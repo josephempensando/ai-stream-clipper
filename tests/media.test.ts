@@ -23,17 +23,17 @@ test('owned generated recording: HTTP upload → analysis with explicit model do
   let transcriptionCalls = 0; let rankCalls = 0;
   // These are explicitly test-only doubles, not a claim that Whisper/Ollama ran.
   const adapters: PipelineAdapters = {
-    transcribe: async () => { transcriptionCalls++; return Array.from({ length: 30 }, (_, i) => ({ start: i * 10, end: i * 10 + 4, text: i % 4 === 0 ? 'Wait! No way! What a surprising clutch!' : 'We are setting up the next round.' })); },
+    transcribe: async () => { transcriptionCalls++; return Array.from({ length: 24 }, (_, i) => ({ start: i * 5, end: i * 5 + 5, text: i % 4 === 0 ? 'Wait! No way! What a surprising clutch!' : 'We are setting up the next round.' })); },
     rank: async candidates => { rankCalls++; return candidates.map(c => {
       const start = c.cues![0]!.start;
-      return { ...c, start, end: Math.min(c.end, start + (start === 100 ? 85 : 12)), score: start === 0 ? 99 : start === 100 ? 95 : 70, title: `TEST DOUBLE: moment ${start}`, explanation: 'Fixture ranking for generated owned media; no real model inference.' };
+      return { ...c, start, end: Math.min(c.cues!.at(-1)!.end, start + (start === 100 ? 145 : 15)), score: start === 0 ? 99 : start === 100 ? 95 : 70, title: `TEST DOUBLE: moment ${start}`, explanation: 'Fixture ranking for generated owned media; no real model inference.' };
     }); },
   };
   const store = new JobStore(root); const manager = new JobManager(store, adapters); const { app } = await createApp(root, manager);
   const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
   const address = server.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
-  const makeForm = (permission: string) => { const f = new FormData(); f.append('permission', permission); f.append('vodOffset', '600'); f.append('media', new Blob([fileBytes], { type: 'video/mp4' }), 'owned.mp4'); return f; };
+  const makeForm = (permission: string) => { const f = new FormData(); f.append('permission', permission); f.append('highlightPolicy', 'natural'); f.append('vodOffset', '600'); f.append('media', new Blob([fileBytes], { type: 'video/mp4' }), 'owned.mp4'); return f; };
   const fileBytes = await readFile(recording);
   const denied = await fetch(`${base}/api/jobs/upload`, { method: 'POST', body: makeForm('false') }); assert.equal(denied.status, 400);
   const uploaded = await fetch(`${base}/api/jobs/upload`, { method: 'POST', body: makeForm('true') }); assert.equal(uploaded.status, 201);
@@ -42,23 +42,28 @@ test('owned generated recording: HTTP upload → analysis with explicit model do
   assert.equal((await fetch(`${base}/api/jobs/${job.id}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 202);
   await manager.idle(); const analyzed = store.get(job.id); assert.equal(analyzed.status, 'review', analyzed.error || '');
   assert.equal(analyzed.highlights.length, 5); assert.equal(transcriptionCalls, 3); assert.ok(rankCalls > 0);
-  assert.ok(analyzed.highlights.some(h => h.end - h.start === 12));
-  assert.ok(analyzed.highlights.some(h => h.end - h.start === 85));
+  assert.ok(analyzed.highlights.some(h => h.end - h.start === 15));
+  assert.ok(analyzed.highlights.some(h => h.end - h.start === 145));
+  assert.ok(analyzed.highlights.every(h => h.duration === h.end - h.start && h.startTime === h.start && h.endTime === h.end && h.reasonForSelection === h.explanation && h.engagementScore === h.score));
   const transcript = await readJson<{ segments: { start: number; end: number }[] }>(path.join(store.dir(job.id), 'transcript.json'));
   assert.ok(transcript?.segments.some(s => s.start === 240)); assert.ok(transcript?.segments.every(s => s.end <= 300));
   const calls = rankCalls; await manager.analyze(job.id); await manager.idle(); assert.equal(transcriptionCalls, 3); assert.equal(rankCalls, calls);
+  const countChanged = await fetch(`${base}/api/jobs/${job.id}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ durationMode: 'auto', clipCount: 7 }) });
+  assert.equal(countChanged.status, 202); await manager.idle();
+  assert.equal(store.get(job.id).clipCount, 7); assert.equal(store.get(job.id).highlights.length, 7); assert.equal(rankCalls, calls);
+  await manager.analyze(job.id, { clipCount: 5 }); await manager.idle();
   // An older ranking cache cannot restore fixed windows; speech is reused.
   const [cacheName] = await readdir(path.join(root, 'cache')); assert.ok(cacheName);
   const cache = path.join(root, 'cache', cacheName);
-  const ranges = path.join(cache, 'natural-ranges-v1');
+  const ranges = path.join(cache, `auto-ranges-v3-silence-${config.maxHighlightSilenceSeconds}`);
   await rename(ranges, path.join(cache, 'saved-natural-ranges'));
   await writeJson(path.join(cache, 'ranking-0.json'), [{ id: 'legacy-fixed-window', start: 0, end: 45 }]);
   await manager.analyze(job.id); await manager.idle();
   assert.equal(store.get(job.id).status, 'review'); assert.equal(transcriptionCalls, 3); assert.ok(rankCalls > calls);
   // Invalid cached model ranges are discarded and recomputed without redoing speech.
   const rankingFile = path.join(ranges, 'ranking-0.json');
-  const saved = await readJson<Highlight[]>(rankingFile); assert.ok(saved?.length);
-  await writeJson(rankingFile, saved.map((h, i) => i === 0 ? { ...h, end: 301 } : h));
+  const saved = await readJson<{ rankings: Highlight[]; reviewed: string[] }>(rankingFile); assert.ok(saved?.rankings.length);
+  await writeJson(rankingFile, { ...saved, rankings: saved.rankings.map((h, i) => i === 0 ? { ...h, end: 301 } : h) });
   await manager.analyze(job.id); await manager.idle();
   assert.equal(store.get(job.id).status, 'review'); assert.ok(store.get(job.id).warnings.some(w => /invalid cached ranking/i.test(w)));
   await writeJson(rankingFile, saved);

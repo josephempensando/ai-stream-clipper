@@ -16,10 +16,10 @@ export class Semaphore {
     }
   }
 }
-export interface ProcessOptions { timeout?: number; onLine?: (line: string) => void; cwd?: string }
+export interface ProcessOptions { timeout?: number; onLine?: (line: string) => void; cwd?: string; env?: NodeJS.ProcessEnv }
 export async function runProcess(executable: string, args: string[], options: ProcessOptions = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { shell: false, windowsHide: true, ...(options.cwd ? { cwd: options.cwd } : {}) });
+    const child = spawn(executable, args, { shell: false, windowsHide: true, ...(options.cwd ? { cwd: options.cwd } : {}), ...(options.env ? { env: options.env } : {}) });
     let output = ''; let error = ''; let pending = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error(`${executable.split(/[\\/]/).at(-1)} timed out.`)); }, options.timeout || 3_600_000);
     child.stdout.on('data', (data: Buffer) => { output += data.toString(); if (output.length > 4_000_000) output = output.slice(-4_000_000); });

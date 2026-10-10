@@ -1,3 +1,4 @@
+import type { SourceRights } from './rights.js';
 export interface Segment { start: number; end: number; text: string }
 export interface Transcript { segments: Segment[]; language: string; model: string }
 export interface Evidence { time: number; loudness: number; scene: boolean }
@@ -6,7 +7,12 @@ export interface Candidate {
   evidence: string[]; transcript: string; frameTimes: number[];
   cues?: Segment[];
 }
-export interface Highlight extends Candidate { title: string; explanation: string; score: number }
+export interface Highlight extends Candidate {
+  title: string; explanation: string; score: number;
+  // Optional for persisted projects created before automatic duration metadata.
+  startTime?: number; endTime?: number; duration?: number; description?: string;
+  reasonForSelection?: string; engagementScore?: number;
+}
 export interface MediaInfo { duration: number; width: number; height: number; hasAudio: boolean }
 export interface RenderOptions { layout: 'blur' | 'crop'; cropX: number; subtitles: boolean }
 export interface ClipEdit { id: string; start: number; end: number }
@@ -17,6 +23,10 @@ export interface Job {
   media: MediaInfo; mediaHash: string; source: 'upload' | 'approved-url'; vodId: string | null;
   vodOffset: number; highlights: Highlight[]; outputs: OutputClip[]; warnings: string[];
   error: string | null; renderOptions: RenderOptions | null;
+  rights?: SourceRights;
+  highlightPolicy?: 'short-form' | 'natural';
+  durationMode?: 'auto';
+  clipCount?: number;
 }
 export interface Vod {
   id: string; title: string; user_id: string; user_name: string; duration: string;
@@ -25,6 +35,7 @@ export interface Vod {
 export interface Health {
   ffmpeg: boolean; ffprobe: boolean; whisper: boolean; ollama: boolean;
   model: string; whisperModel: string; twitch: boolean; clipAuth: boolean;
+  editorDefaults?: { durationMode: 'auto'; clipCount: number };
 }
 export interface PublicClip {
   id: string; url: string; embed_url: string; broadcaster_id: string; broadcaster_name: string;

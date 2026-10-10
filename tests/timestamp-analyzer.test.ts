@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { writeJson } from '../src/server/store.js';
+import { transcriptCandidates } from '../src/server/transcripts.js';
+import { config } from '../src/server/config.js';
 import { TwitchClient } from '../src/server/twitch.js';
 import { YouTubeClient } from '../src/server/youtube.js';
 import { TimestampAnalyzer } from '../src/server/timestamp-analyzer.js';
@@ -17,7 +21,8 @@ function fixture(clips: ReturnType<typeof clip>[], options: { youtubeDuration?: 
   });
   const youtube = new YouTubeClient('server-key', async () => Response.json({ items: [{ id: 'abcdefghijk', snippet: { title: 'Owned test transcript stream', channelTitle: 'Test', liveBroadcastContent: 'none', thumbnails: {} }, contentDetails: { duration: options.youtubeDuration || 'PT5M' }, statistics: { viewCount: '100' }, status: { embeddable: true, privacyStatus: 'public' } }] }));
   const rank = async (candidates: Candidate[]): Promise<Highlight[]> => { ranks++; return options.rank ? options.rank(candidates) : candidates.map(c => ({ ...c, end: Math.min(c.end, c.start + 10), score: 60 + c.start % 20, title: `Transcript moment ${c.start}`, explanation: 'Setup and payoff are present in the supplied transcript.' })); };
-  return { analyzer: new TimestampAnalyzer(twitch, youtube, path.resolve('test-artifacts', `analyzer-${randomUUID()}`), rank), queries, ranks: () => ranks };
+  const root = path.resolve('test-artifacts', `analyzer-${randomUUID()}`);
+  return { analyzer: new TimestampAnalyzer(twitch, youtube, root, rank), root, queries, ranks: () => ranks };
 }
 const transcript = { name: 'owned.json', text: JSON.stringify({ segments: Array.from({ length: 60 }, (_, i) => ({ start: i * 5, end: i * 5 + 5, text: i % 6 === 0 ? 'Wait, no way! We finally won that round!' : 'Here is the setup and the payoff for the next attempt.' })) }), permission: true as const };
 test('Twitch timestamps use clip start offsets, actual durations and non-overlapping evidence', async () => {
@@ -45,6 +50,17 @@ test('YouTube supplied transcript yields five supported highlights and reuses ca
   const ordered = [...result.highlights].sort((a, b) => a.start - b.start);
   assert.ok(ordered.every((h, i) => h.duration === 10 && h.end <= 300 && (!i || h.start >= ordered[i - 1]!.end)));
   const count = f.ranks(); await f.analyzer.analyze('https://youtube.com/live/abcdefghijk', transcript); assert.equal(f.ranks(), count);
+});
+
+test('old context-length rankings are ignored so longer complete moments are reconsidered', async () => {
+  const cues = Array.from({ length: 20 }, (_, i) => ({ start: i * 15, end: i * 15 + 15, text: 'The complete explanation continues.' }));
+  const attachment = { name: 'long.json', text: JSON.stringify(cues), permission: true as const };
+  const f = fixture([], { rank: async cs => cs.map(c => ({ ...c, score: 99 - c.start / 10, title: 'Whole explanation', explanation: 'The conclusion needs all of the setup.' })) });
+  const legacyKey = createHash('sha256').update(JSON.stringify({ version: 'transcript-natural-ranges-v3', platform: 'youtube', video: 'abcdefghijk', duration: 300, segments: cues, model: config.transcriptOllamaModel })).digest('hex');
+  const cached = transcriptCandidates(cues, 300).map(c => ({ ...c, end: c.start + 15, score: 90, title: 'Old fragment', explanation: 'Old context-limited choice.' }));
+  await writeJson(path.join(f.root, 'analyzer-cache', `${legacyKey}.json`), cached);
+  const result = await f.analyzer.analyze('https://youtu.be/abcdefghijk', attachment);
+  assert.ok(f.ranks() > 0); assert.equal(result.highlights[0]?.duration, 300);
 });
 
 test('transcript analysis recovers bad batch IDs and retains partial results without accepting invented timing', async () => {

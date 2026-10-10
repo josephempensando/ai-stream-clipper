@@ -20,10 +20,11 @@ import { TRANSCRIPT_MAX_BYTES } from './transcripts.js';
 import { health } from './health.js';
 import { prepareRecording } from './media.js';
 import { downloadApproved } from './security.js';
-import { parseVodId, renderSchema } from '../shared/validation.js';
+import { parseVodId, renderSchema, analysisSettingsSchema } from '../shared/validation.js';
 import type { Job } from '../shared/types.js';
+import { assessRights, normalizeRights, sourceRightsSchema, platforms, rightsUses } from '../shared/rights.js';
 
-const uploadMeta = z.object({ permission: z.literal('true'), vodId: z.string().default(''), vodOffset: z.coerce.number().finite().nonnegative().default(0) });
+const uploadMeta = z.object({ permission: z.literal('true'), vodId: z.string().default(''), vodOffset: z.coerce.number().finite().nonnegative().default(0), rights: z.string().max(20000).optional(), ...analysisSettingsSchema.shape });
 export async function createApp(root = config.dataDir, managerOverride?: JobManager, integrations: { twitch?: TwitchClient; oauth?: TwitchOAuth; analyzer?: TimestampAnalyzer } = {}) {
   const store = managerOverride?.store || new JobStore(root); await store.init();
   const manager = managerOverride || new JobManager(store); const twitch = integrations.twitch || new TwitchClient();
@@ -96,10 +97,10 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   });
   app.get('/api/twitch/live/clips', (req, res) => { const auth = viewer(req.headers.cookie); res.setHeader('Cache-Control', 'no-store'); res.json(twitchLive.list(auth.userId)); });
   app.get('/api/twitch/live/clips/:id', async (req, res) => { const auth = viewer(req.headers.cookie); res.json(await twitchLive.refresh(clipIdSchema.parse(req.params.id), auth.userId)); });
-  const upload = multer({ dest: path.join(root, 'uploads'), limits: { fileSize: config.maxBytes, files: 1, fields: 4, fieldSize: 2048 }, fileFilter: (_req, file, cb) => {
+  const upload = multer({ dest: path.join(root, 'uploads'), limits: { fileSize: config.maxBytes, files: 1, fields: 8, fieldSize: 20000 }, fileFilter: (_req, file, cb) => {
     if (!file.originalname.toLowerCase().endsWith('.mp4')) cb(new Error('Upload an MP4 recording.')); else cb(null, true);
   } });
-  app.get('/api/health', async (_req, res) => { res.json(await health()); });
+  app.get('/api/health', async (_req, res) => { res.json({ ...await health(), editorDefaults: { durationMode: 'auto', clipCount: config.clipCount ?? 5 } }); });
   app.get('/api/twitch/video', async (req, res) => {
     const input = z.string().min(1).max(512).parse(req.query.input);
     res.json({ vod: await twitch.video(input), access: 'metadata-only', message: 'Public VOD visibility does not grant media access. Upload an authorized recording to begin automatic analysis, or create a clip as an authorized broadcaster/editor.' });
@@ -114,14 +115,27 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   });
   app.get('/api/jobs', (_req, res) => { res.json([...store.jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))); });
   app.get('/api/jobs/:id', (req, res) => { res.json(store.get(String(req.params.id))); });
+  app.get('/api/jobs/:id/rights', (req, res) => {
+    const job = store.get(String(req.params.id));
+    const query = z.object({ platform: z.enum(platforms).optional(), use: z.enum(rightsUses).optional() }).parse(req.query);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ rights: normalizeRights(job.rights), assessment: assessRights(job.rights, { ...(query.platform ? { platform: query.platform } : {}), ...(query.use ? { uses: [query.use] } : {}) }) });
+  });
+  app.put('/api/jobs/:id/rights', async (req, res) => {
+    const job = store.get(String(req.params.id)); const rights = sourceRightsSchema.parse(req.body);
+    // Rights can be recorded without invalidating analysis or claiming clearance.
+    await store.saveRights(job.id, rights);
+    res.json({ rights, assessment: assessRights(rights) });
+  });
   async function acceptMedia(file: string, name: string, source: Job['source'], meta: z.infer<typeof uploadMeta>): Promise<Job> {
+    const rights = meta.rights ? sourceRightsSchema.parse(JSON.parse(meta.rights)) : normalizeRights(undefined);
     const vodId = meta.vodId ? parseVodId(meta.vodId) : null;
     const prepared = await prepareRecording(file);
     try {
       const media = prepared.media;
       const mediaHash = await hashFile(prepared.file); const id = randomUUID(); await mkdir(store.dir(id), { recursive: true });
       await rename(prepared.file, store.mediaPath(id));
-      const job: Job = { id, name: path.basename(name), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Recording ready', progress: 0, media, mediaHash, source, vodId, vodOffset: meta.vodOffset, highlights: [], outputs: [], warnings: prepared.remuxed ? ['Repackaged MPEG-TS as MP4 without re-encoding the video or audio.'] : [], error: null, renderOptions: null };
+      const job: Job = { id, name: path.basename(name), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Recording ready', progress: 0, media, mediaHash, source, vodId, vodOffset: meta.vodOffset, highlights: [], outputs: [], warnings: prepared.remuxed ? ['Repackaged MPEG-TS as MP4 without re-encoding the video or audio.'] : [], error: null, renderOptions: null, rights, durationMode: 'auto', clipCount: meta.clipCount ?? config.clipCount ?? 5 };
       await store.save(job); return job;
     } finally { if (prepared.file !== file) await rm(prepared.file, { force: true }); }
   }
@@ -133,16 +147,19 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
     res.status(201).json(job);
   });
   app.post('/api/jobs/import', async (req, res) => {
-    const input = z.object({ url: z.string().url().max(4096), permission: z.literal(true), vodId: z.string().default(''), vodOffset: z.number().finite().nonnegative().default(0) }).parse(req.body);
+    const input = z.object({ url: z.string().url().max(4096), permission: z.literal(true), vodId: z.string().default(''), vodOffset: z.number().finite().nonnegative().default(0), rights: sourceRightsSchema.optional(), ...analysisSettingsSchema.shape }).parse(req.body);
     const file = path.join(root, 'uploads', randomUUID());
     let job: Job;
     try {
       await downloadApproved(input.url, file, config.approvedHosts, config.maxBytes);
-      job = await acceptMedia(file, 'approved-recording.mp4', 'approved-url', { ...input, permission: 'true' });
+      job = await acceptMedia(file, 'approved-recording.mp4', 'approved-url', { vodId: input.vodId, vodOffset: input.vodOffset, permission: 'true', durationMode: input.durationMode, ...(input.clipCount ? { clipCount: input.clipCount } : {}), ...(input.rights ? { rights: JSON.stringify(input.rights) } : {}) });
     } finally { await rm(file, { force: true }); }
     res.status(201).json(job);
   });
-  app.post('/api/jobs/:id/analyze', async (req, res) => { res.status(202).json(await manager.analyze(String(req.params.id))); });
+  app.post('/api/jobs/:id/analyze', async (req, res) => {
+    const body = analysisSettingsSchema.parse(req.body || {});
+    res.status(202).json(await manager.analyze(String(req.params.id), body));
+  });
   app.post('/api/jobs/:id/render', async (req, res) => {
     const body = renderSchema.parse(req.body); res.status(202).json(await manager.render(String(req.params.id), body.clips, body.options));
   });
@@ -150,7 +167,7 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   app.get('/api/jobs/:id/results', (req, res) => {
     const job = store.get(String(req.params.id));
     if (job.status === 'complete') res.download(path.join(store.dir(job.id), 'exports', 'results.json'), 'results.json');
-    else if (job.highlights.length) res.json({ jobId: job.id, highlights: job.highlights, warnings: job.warnings, vodOffset: job.vodOffset });
+    else if (job.highlights.length || job.status === 'review') res.json({ jobId: job.id, durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount ?? 5, highlights: job.highlights, warnings: job.warnings, vodOffset: job.vodOffset, rights: normalizeRights(job.rights), rightsAssessment: assessRights(job.rights), purpose: 'private-analysis' });
     else res.status(409).json({ error: 'Analysis has not completed.' });
   });
   app.get('/api/jobs/:id/files/:file', (req, res) => {

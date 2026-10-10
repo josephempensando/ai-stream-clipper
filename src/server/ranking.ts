@@ -1,16 +1,20 @@
 import type { Candidate, Highlight } from '../shared/types.js';
-import { OllamaRankingError, validateNaturalRankings } from './models.js';
+import { OllamaRankingError, validateNaturalRankings, validateAutoRankings } from './models.js';
 
-export function validateCachedRankings(rows: Highlight[], candidates: Candidate[], transcriptOnly = false): Highlight[] {
+export function validateCachedRankings(rows: Highlight[], candidates: Candidate[], transcriptOnly = false, auto = false): Highlight[] {
   if (!Array.isArray(rows)) throw new Error('Invalid ranking cache.');
   const supplied = candidates.filter(c => rows.some(row => row?.id === c.id));
   // Unknown IDs, repeated IDs and unsupported times still fail validation.
-  return validateNaturalRankings({ rankings: rows }, supplied, transcriptOnly);
+  const result = validateNaturalRankings({ rankings: rows }, supplied, transcriptOnly || auto);
+  if (auto) return validateAutoRankings({ rankings: Object.fromEntries(candidates.map(c => [c.id, result.find(h => h.id === c.id) || null])) }, candidates);
+  return result;
 }
 
 export async function recoverRankings(candidates: Candidate[], images: string[], rank: (cs: Candidate[], images: string[]) => Promise<Highlight[]>, options: {
   transcriptOnly?: boolean;
+  durationMode?: 'auto';
   onAccepted?: (rows: Highlight[]) => Promise<void>;
+  onReviewed?: (ids: string[]) => Promise<void>;
   onProgress?: (stage: string) => Promise<void>;
   onWarning?: (warning: string) => void;
 } = {}): Promise<{ highlights: Highlight[]; error: Error | null }> {
@@ -22,7 +26,7 @@ export async function recoverRankings(candidates: Candidate[], images: string[],
       if (attempt) await options.onProgress?.('Retrying one reading context');
       try {
         const rows = await rank(batch, frames);
-        try { accepted = validateNaturalRankings({ rankings: rows }, batch, options.transcriptOnly); }
+        try { accepted = options.durationMode === 'auto' ? validateCachedRankings(rows, batch, true, true) : validateNaturalRankings({ rankings: rows }, batch, options.transcriptOnly); }
         catch (error) { throw new OllamaRankingError(error instanceof Error ? error.message : 'Invalid model ranking.', 'invalid'); }
         break;
       } catch (error) {
@@ -44,6 +48,7 @@ export async function recoverRankings(candidates: Candidate[], images: string[],
       highlights.push(...accepted);
       // Persist each successful recovery before attempting the next context.
       await options.onAccepted?.(accepted);
+      await options.onReviewed?.(batch.map(c => c.id));
     }
   }
   await visit(candidates, images);

@@ -1,8 +1,8 @@
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly retryAfter = 0) { super(message); }
 }
-export async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api${path}`, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+export async function api<T>(path: string, body?: unknown, method: 'POST' | 'PUT' = 'POST'): Promise<T> {
+  const response = await fetch(`/api${path}`, body === undefined ? {} : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const data = await response.json() as T & { error?: string; retryAfter?: number };
   if (!response.ok) throw new ApiError(data.error || `Request failed (${response.status})`, response.status, Number(response.headers.get('Retry-After')) || data.retryAfter || 0);
   return data;

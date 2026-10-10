@@ -53,14 +53,14 @@ export function parseTranscript(name: string, content: string, duration: number)
   if (!segments.length) throw new Error('Transcript has no usable timestamped text.');
   return { segments, warnings };
 }
-export function transcriptSupports(segments: Segment[], start: number, end: number, duration: number): boolean {
+export function transcriptSupports(segments: Segment[], start: number, end: number, duration: number, maxSilenceSeconds = 8): boolean {
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > duration || end <= start) return false;
   if (!segments.some(s => s.start === start && s.text.trim()) || !segments.some(s => s.end === end && s.text.trim())) return false;
   let cursor = start; let supported = false;
   for (const cue of segments) {
     if (cue.end <= start || cue.start >= end || !cue.text.trim()) continue;
     if (!supported && cue.start > start + 0.001) return false;
-    if (cue.start - cursor > 8) return false;
+    if (cue.start - cursor > maxSilenceSeconds) return false;
     cursor = Math.max(cursor, cue.end); supported = true;
   }
   return supported && cursor >= end - 0.001;
@@ -74,7 +74,7 @@ export function transcriptCandidates(segments: Segment[], duration: number): Can
     const start = segments[i]!.start; const cues: Segment[] = []; let end = start; let characters = 0;
     for (let j = i; j < segments.length; j++) {
       const cue = segments[j]!;
-      if (cues.length && (cue.start - end > 8 || cue.end - start > 180 || characters + cue.text.length > 6000)) break;
+      if (cues.length && (cue.start - end > 8 || characters + cue.text.length > 6000)) break;
       cues.push(cue); end = Math.max(end, cue.end); characters += cue.text.length;
     }
     if (!transcriptSupports(cues, start, end, duration)) continue;

@@ -5,7 +5,8 @@ import type { PipelineAdapters } from './pipeline.js';
 import { JobStore, readJson, writeJson } from './store.js';
 import { renderClips } from './render.js';
 import type { ClipEdit, Job, RenderOptions, Transcript } from '../shared/types.js';
-import { validateEdits } from '../shared/validation.js';
+import { validateEdits, analysisSettingsSchema } from '../shared/validation.js';
+import { config } from './config.js';
 
 export class JobManager {
   private readonly queue = new Semaphore(1);
@@ -27,9 +28,12 @@ export class JobManager {
     if (this.reserved.size >= 20) throw new Error('Job queue is full. Wait for current work to finish.');
     this.reserved.add(job.id);
   }
-  async analyze(id: string): Promise<Job> {
+  async analyze(id: string, settings: { durationMode?: 'auto'; clipCount?: number | undefined } = {}): Promise<Job> {
     const job = this.store.get(id);
+    const options = analysisSettingsSchema.parse({ durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount ?? 5, ...settings });
     this.reserve(job); const previous = { ...job };
+    job.durationMode = 'auto'; job.clipCount = options.clipCount ?? 5;
+    delete job.highlightPolicy;
     job.status = 'queued'; job.error = null; job.progress = 0; job.outputs = [];
     try { await this.progress(job, 'Waiting for analysis', 0); }
     catch (error) { this.reserved.delete(job.id); Object.assign(job, previous); throw error; }
