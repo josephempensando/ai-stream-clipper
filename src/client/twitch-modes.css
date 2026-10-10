@@ -1,0 +1,38 @@
+.mode-selector { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+.mode-option { display: flex; align-items: center; gap: 12px; text-align: left; padding: 18px; border: 1px solid #343b46; border-radius: 10px; color: #9ca9bb; background: #171b23; cursor: pointer; min-width: 0; }
+.mode-option > span { flex: 1; min-width: 0; }
+.mode-option strong { display: block; color: #e8ecf3; font-size: 13px; line-height: 1.5; }
+.mode-option small { display: block; font-size: 11px; margin-top: 4px; line-height: 1.5; }
+.mode-option.active { border-color: #bce972; background: #20251c; color: #bce972; }
+.mode-option.active strong { color: #d8f7a8; }
+.mode-option:hover { border-color: #8da56d; }
+.public-workbench .input-area { display: flex; flex-direction: column; gap: 14px; }
+.public-workbench .input-area > p { margin: 0; color: #b8c5d8; }
+.public-workbench .input-area input { min-width: 0; width: 100%; }
+.public-workbench .vod-details { display: flex; flex-direction: column; gap: 6px; }
+.public-workbench .panel-title h2 { min-width: 0; overflow-wrap: anywhere; }
+.public-workbench .preview-canvas iframe { width: 100%; height: 100%; border: 0; }
+.public-workbench a { color: #c3eb87; display: inline-flex; align-items: center; gap: 6px; }
+.public-progress { display: flex; align-items: center; gap: 10px; color: #c3eb87; padding: 0 0 18px; }
+.public-summary { padding-bottom: 24px; }
+.public-summary > p, .public-summary > small { display: block; margin: 12px 24px; line-height: 1.7; color: #aebbd0; }
+.public-summary .notice { margin: 16px 24px 0; }
+.public-result-count { padding: 0 24px; color: #aebbd0; font-size: 13px; }
+.public-clip-list { padding: 0 24px 24px; display: grid; gap: 16px; }
+.public-clip-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; padding: 16px; border: 1px solid #343b46; border-radius: 10px; background: #131820; }
+.public-thumbnail { position: relative; display: flex; align-items: center; justify-content: center; align-self: start; aspect-ratio: 16/9; border: 0; padding: 0; background: #252b36; color: #bce972; border-radius: 7px; overflow: hidden; cursor: pointer; }
+.public-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.public-thumbnail > span { position: absolute; right: 6px; bottom: 6px; padding: 3px 5px; background: #111c; color: white; font-size: 11px; border-radius: 3px; }
+.public-thumbnail > svg:last-child { position: absolute; left: 8px; bottom: 8px; color: white; filter: drop-shadow(0 1px 2px #000); }
+.public-clip-content { min-width: 0; }
+.public-clip-content h3, .live-clip-card h3 { margin: 0 0 8px; color: #ecf1fa; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.public-clip-content small { display: flex; align-items: center; gap: 6px; color: #aebbd0; font-size: 11px; }
+.public-clip-content p, .live-clip-card p { color: #97a5ba; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.public-clip-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; font-size: 11px; color: #aebbd0; }
+.live-clip-card { padding: 18px; border: 1px solid #343b46; border-radius: 10px; background: #131820; min-width: 0; }
+.live-clip-card small { color: #aebbd0; font-size: 11px; }
+.live-clip-card .highlight-heading { flex-wrap: wrap; gap: 8px; }
+.live-clip-card .official-links { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; }
+[hidden] { display: none !important; }
+@media (max-width: 1100px) { .mode-selector { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mode-option { padding: 12px; gap: 8px; } .mode-option > svg { flex-shrink: 0; } .public-clip-card { grid-template-columns: 110px minmax(0, 1fr); } }
+@media (max-width: 700px) { .mode-selector { grid-template-columns: 1fr; gap: 8px; margin-bottom: 20px; } .public-clip-list { padding: 0 14px 18px; } .public-clip-card { grid-template-columns: 1fr; } .public-thumbnail { width: 100%; } .public-workbench .panel-meta { display: none; } .public-summary > p, .public-summary > small { margin-left: 16px; margin-right: 16px; } .public-workbench .preview-footer { flex-wrap: wrap; gap: 10px; } }

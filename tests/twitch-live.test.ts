@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import type { LiveClip } from '../src/shared/types.js';
+import { TwitchClient } from '../src/server/twitch.js';
+import { TwitchApiError } from '../src/server/twitch-http.js';
+import { TwitchLiveStore } from '../src/server/twitch-live.js';
+test('failed publication lookups terminate after 60 seconds and persist unconfirmed IDs', async t => {
+  let now = Date.now(); let calls = 0;
+  const client = new TwitchClient({ clientId: 'client', secret: '', userToken: 'token' }, async () => { calls++; throw new Error('offline'); });
+  const root = path.resolve('test-artifacts', `live-deadline-${randomUUID()}`);
+  const store = new TwitchLiveStore(root, client, () => now); await store.init(); t.after(() => store.close());
+  const clip: LiveClip = { id: 'Pending', url: 'https://clips.twitch.tv/Pending', editUrl: 'https://www.twitch.tv/clip/Pending', broadcasterId: '42', broadcasterName: 'CaseOh', creatorId: '7', createdAt: new Date(now).toISOString(), status: 'pending', title: 'Moment', duration: 45, error: null };
+  await store.create('7', async () => clip);
+  await assert.rejects(store.refresh('Pending', '7'), TwitchApiError); assert.equal(calls, 1);
+  now += 60_001;
+  const expired = await store.refresh('Pending', '7'); assert.equal(expired.status, 'failed'); assert.equal(calls, 1);
+  assert.match(expired.error!, /60 seconds/); assert.equal(expired.url, clip.url);
+  const restarted = new TwitchLiveStore(root, client, () => now); await restarted.init(); t.after(() => restarted.close());
+  assert.equal(restarted.list('7')[0]?.status, 'failed'); assert.equal(restarted.list('other').length, 0);
+});
+test('a late failing concurrent poll cannot downgrade a confirmed live clip', async t => {
+  let now = Date.now(); const waiting: { resolve: (r: Response) => void; reject: (e: Error) => void }[] = [];
+  const client = new TwitchClient({ clientId: 'client', secret: '', userToken: 'token' }, () => new Promise<Response>((resolve, reject) => waiting.push({ resolve, reject })));
+  const store = new TwitchLiveStore(path.resolve('test-artifacts', `live-race-${randomUUID()}`), client, () => now); await store.init(); t.after(() => store.close());
+  await store.create('7', async () => ({ id: 'Pending', url: 'https://clips.twitch.tv/Pending', editUrl: 'https://www.twitch.tv/clip/Pending', broadcasterId: '42', broadcasterName: 'CaseOh', creatorId: '7', createdAt: new Date(now).toISOString(), status: 'pending', title: 'Moment', duration: 45, error: null }));
+  const first = store.refresh('Pending', '7'); const second = store.refresh('Pending', '7'); await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(waiting.length, 2); now += 59_000;
+  waiting[0]!.resolve(Response.json({ data: [{ id: 'Pending', url: 'https://clips.twitch.tv/Pending', embed_url: 'https://clips.twitch.tv/embed?clip=Pending', broadcaster_id: '42', broadcaster_name: 'CaseOh', creator_id: '7', creator_name: 'viewer', video_id: '123', game_id: '1', language: 'en', title: 'Moment', view_count: 1, created_at: '', thumbnail_url: '', duration: 45, vod_offset: null }], pagination: {} }));
+  assert.equal((await first).status, 'ready'); now += 2000; waiting[1]!.reject(new Error('offline'));
+  assert.equal((await second).status, 'ready'); assert.equal(store.list('7')[0]?.status, 'ready');
+});

@@ -1,0 +1,159 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "CUTLINE ●" [ref=e5] [cursor=pointer]:
+      - /url: "#"
+      - text: CUTLINE
+      - generic [ref=e13]: ●
+    - generic [ref=e14]: YOUR WORKSPACE
+    - navigation [ref=e15]:
+      - button "Workbench AI" [ref=e16] [cursor=pointer]:
+        - text: Workbench
+        - generic [ref=e21]: AI
+      - button "Recordings 0" [ref=e22] [cursor=pointer]:
+        - text: Recordings
+        - generic [ref=e25]: "0"
+      - button "Local setup" [ref=e26] [cursor=pointer]
+    - generic [ref=e30]:
+      - strong [ref=e34]: Your footage. Your machine.
+      - paragraph [ref=e35]: Local transcription and AI ranking. Your recordings stay with you.
+      - generic [ref=e36]: LOCAL WORKSPACE
+    - generic [ref=e38]:
+      - generic [ref=e39]: LC
+      - generic [ref=e40]:
+        - strong [ref=e41]: Local creator
+        - generic [ref=e42]: Personal workspace
+      - button "Open setup help" [ref=e43] [cursor=pointer]
+  - generic [ref=e46]:
+    - banner [ref=e47]:
+      - generic [ref=e48]:
+        - text: Workspace
+        - generic [ref=e51]: AI Stream Clipper
+      - generic [ref=e52]:
+        - generic [ref=e53]: RUNS LOCALLY
+        - button "New project" [ref=e55] [cursor=pointer]
+    - main [ref=e57]:
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - generic [ref=e60]: MADE FOR THE MOMENTS THAT MATTER
+          - heading "Long streams. Short-form gold." [level=1] [ref=e64]
+          - paragraph [ref=e65]: Find the highlights, make them yours, and turn your stream into shareable clips.
+        - generic [ref=e66]: MVP / 01
+      - generic "Clip workflow mode" [ref=e67]:
+        - button "Analyze livestream highlights" [ref=e68] [cursor=pointer]:
+          - generic [ref=e72]:
+            - strong [ref=e73]: Analyze livestream highlights
+            - generic [ref=e74]: Twitch & YouTube · Timestamps
+        - button "Discover existing VOD clips" [ref=e77] [cursor=pointer]:
+          - generic [ref=e83]:
+            - strong [ref=e84]: Discover existing VOD clips
+            - generic [ref=e85]: Public clips · Views & titles
+        - button "Create live Twitch clips" [ref=e86] [cursor=pointer]:
+          - generic [ref=e90]:
+            - strong [ref=e91]: Create live Twitch clips
+            - generic [ref=e92]: Viewer account · Live moments
+        - button "Analyze authorized recording" [active] [pressed] [ref=e93] [cursor=pointer]:
+          - generic [ref=e98]:
+            - strong [ref=e99]: Analyze authorized recording
+            - generic [ref=e100]: Local AI · Vertical exports
+      - generic [ref=e198]:
+        - generic [ref=e199]:
+          - generic [ref=e200]:
+            - generic [ref=e201]: "01"
+            - text: Add your stream
+          - generic [ref=e203]:
+            - generic [ref=e204]: "02"
+            - text: Find the highlights
+          - generic [ref=e206]:
+            - generic [ref=e207]: "03"
+            - text: Review & export
+        - generic [ref=e208]:
+          - generic [ref=e209]:
+            - generic [ref=e210]:
+              - generic [ref=e211]:
+                - heading "Source recording" [level=2] [ref=e217]
+                - generic [ref=e218]: 01 / INPUT
+              - generic [ref=e219]:
+                - button "Upload video" [ref=e220] [cursor=pointer]
+                - button "Twitch VOD" [ref=e224] [cursor=pointer]
+                - button "Approved URL" [ref=e228] [cursor=pointer]
+              - generic [ref=e233]:
+                - heading "Drop your recording here" [level=3] [ref=e238]
+                - paragraph [ref=e239]: Your stream recording, ready for its next chapter.
+                - button "Browse files" [ref=e240] [cursor=pointer]
+                - generic [ref=e243]: MP4 · Minimum 30 seconds · Up to 20 GB by default
+              - generic [ref=e244]:
+                - generic [ref=e245]:
+                  - checkbox "I own this recording or have permission to process it." [ref=e246]
+                  - generic [ref=e247]: I own this recording or have permission to process it.
+                - generic [ref=e248]:
+                  - text: Recording starts at VOD second
+                  - spinbutton "Recording starts at VOD second" [ref=e249]: "0"
+                - button "Upload recording" [disabled] [ref=e250]
+            - generic [ref=e254]:
+              - generic [ref=e255]:
+                - heading "Highlight recipe" [level=2] [ref=e260]
+                - generic [ref=e261]: 02 / ANALYZE
+              - generic [ref=e262]:
+                - generic [ref=e263]:
+                  - generic [ref=e264]: CLIPS
+                  - strong [ref=e265]:
+                    - text: "5"
+                    - generic [ref=e266]: best moments
+                - generic [ref=e267]:
+                  - generic [ref=e268]: DURATION
+                  - strong [ref=e269]:
+                    - text: 30–60
+                    - generic [ref=e270]: seconds
+                - generic [ref=e271]:
+                  - generic [ref=e272]: FORMAT
+                  - strong [ref=e273]:
+                    - text: 9:16
+                    - generic [ref=e274]: vertical
+              - generic [ref=e275]:
+                - text: High-energy variety & gaming
+                - generic [ref=e278]: Context-aware ranking
+              - button "Analyze stream" [disabled] [ref=e279]
+              - generic [ref=e285]:
+                - text: WhisperOllamaFFmpeg
+                - button "Manage" [ref=e289] [cursor=pointer]
+          - generic [ref=e292]:
+            - generic [ref=e293]:
+              - generic [ref=e294]:
+                - heading "Stream preview" [level=2] [ref=e298]
+                - generic [ref=e299]: YOUR CREATIVE CANVAS
+              - generic [ref=e301]:
+                - generic [ref=e306]: FROM THE FULL STREAM TO THE GOOD STUFF
+                - heading "Your next highlight starts here." [level=3] [ref=e307]: Your next highlightstarts here.
+                - paragraph [ref=e308]: Add a recording to bring your timeline to life.
+                - generic [ref=e309]:
+                  - generic [ref=e310]: 30–60s clips
+                  - generic [ref=e314]: 1080 × 1920
+              - generic [ref=e318]:
+                - generic [ref=e319]: No recording added yet
+                - generic [ref=e322]: "— : —"
+            - generic [ref=e323]:
+              - generic [ref=e324]:
+                - heading "Your highlights" [level=2] [ref=e330]
+                - generic [ref=e331]: "0"
+              - generic [ref=e332]:
+                - heading "The best moments are waiting." [level=3] [ref=e340]
+                - paragraph [ref=e341]: AI will look for the reactions, the unexpected turns,and the moments worth watching again.
+                - generic [ref=e342]:
+                  - generic [ref=e343]: Humor & surprise
+                  - generic [ref=e344]: Scene changes
+                  - generic [ref=e345]: Story & context
+        - generic [ref=e346]:
+          - generic [ref=e351]:
+            - heading "Make it share-ready." [level=2] [ref=e352]
+            - paragraph [ref=e353]: 1080 × 1920 · MP4 · H.264 + AAC
+          - generic [ref=e354]:
+            - combobox "Vertical layout" [ref=e359]:
+              - option "Blurred padding" [selected]
+              - option "Fill with crop"
+            - generic [ref=e360]:
+              - checkbox "Subtitles" [ref=e361]
+              - generic [ref=e365]: Subtitles
+          - button "Generate clips" [disabled] [ref=e366]
+        - generic [ref=e375]:
+          - generic [ref=e376]: Authorized media only. No scraping, no access bypasses.
+          - generic [ref=e380]: Built for creators. Kept local.

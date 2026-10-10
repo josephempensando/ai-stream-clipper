@@ -1,0 +1,22 @@
+import path from 'node:path';
+import { copyFile, mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { health } from '../src/server/health.js';
+import { JobStore, hashFile } from '../src/server/store.js';
+import { JobManager } from '../src/server/jobs.js';
+import { probe } from '../src/server/media.js';
+import type { Job } from '../src/shared/types.js';
+
+const file = process.argv[2];
+if (!file || !process.argv.includes('--authorized')) throw new Error('Usage: npm run smoke:local -- C:\\path\\owned-recording.mp4 --authorized');
+const state = await health(); console.log('Local engine readiness:', state);
+if (!state.ffmpeg || !state.ffprobe || !state.whisper || !state.ollama) throw new Error('Install/configure missing local engines before running the live smoke test.');
+const store = new JobStore(path.resolve('data/live-smoke')); await store.init(); const id = randomUUID();
+await mkdir(store.dir(id), { recursive: true }); await copyFile(file, store.mediaPath(id));
+const job: Job = { id, name: path.basename(file), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Ready', progress: 0, media: await probe(file), mediaHash: await hashFile(file), source: 'upload', vodId: null, vodOffset: 0, highlights: [], outputs: [], warnings: [], error: null, renderOptions: null };
+await store.save(job); const manager = new JobManager(store); await manager.analyze(id); await manager.idle();
+if (job.status !== 'review') throw new Error(job.error || 'Analysis failed.');
+console.log('Live Whisper/Ollama highlights:', job.highlights);
+await manager.render(id, job.highlights.map(({ id, start, end }) => ({ id, start, end })), { layout: 'blur', cropX: 0.5, subtitles: false }); await manager.idle();
+if (store.get(id).status !== 'complete') throw new Error(job.error || 'Rendering failed.');
+console.log(`Live end-to-end test passed. Outputs: ${store.dir(id)}\\exports`);

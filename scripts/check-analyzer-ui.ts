@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import { chromium } from '@playwright/test';
+import { mkdir, readFile } from 'node:fs/promises';
+import { formatTimestamp, timestampLink } from '../src/shared/livestream.js';
+const url = process.argv[2] || 'http://127.0.0.1:5173';
+const browser = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+try {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, permissions: ['clipboard-read', 'clipboard-write'] });
+  const page = await context.newPage(); page.setDefaultTimeout(7000); const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+  let youtube = false; let hasTranscript = false; let requests = 0;
+  const source = () => ({ platform: youtube ? 'youtube' : 'twitch', id: youtube ? 'abcdefghijk' : '123', url: youtube ? 'https://www.youtube.com/watch?v=abcdefghijk' : 'https://www.twitch.tv/videos/123', title: youtube ? 'Transcript test stream' : 'Twitch test stream', creator: 'Creator', duration: 7200, viewCount: 100, thumbnailUrl: '', isLive: false, embedAllowed: true });
+  const highlights = () => Array.from({ length: youtube ? 5 : 2 }, (_, i) => {
+    const start = 3661 + i * 100; const duration = i === 1 ? 12.5 : youtube && i === 0 ? 85 : 45; const end = start + duration;
+    return { id: `moment${i}`, start, end, startTime: formatTimestamp(start), endTime: formatTimestamp(end), duration, title: i ? !youtube ? 'Shorter reaction' : `Transcript moment ${i}` : 'Moment One', description: youtube ? 'Setup and payoff in the supplied transcript.' : 'Popularity and reaction title; no audiovisual analysis.', score: 70, viewCount: youtube ? null : 1234, clipUrl: youtube ? null : 'https://clips.twitch.tv/Example', originalUrl: timestampLink(youtube ? 'youtube' : 'twitch', youtube ? 'abcdefghijk' : '123', start), dataSource: youtube ? 'transcript' : 'existing-clips', confidence: youtube ? 'transcript-supported' : 'metadata-only', transcript: youtube ? 'No way! We won the round.' : null };
+  });
+  await page.route('**/api/analyzer/**', async route => {
+    if (route.request().url().endsWith('/status')) return route.fulfill({ json: { youtubeConfigured: true, twitchConfigured: true, transcriptModel: 'llama3.2' } });
+    requests++; const body = route.request().postData() || ''; hasTranscript = body.includes('filename=');
+    return route.fulfill({ json: { source: source(), highlights: youtube && !hasTranscript ? [] : highlights(), status: youtube ? hasTranscript ? 'ready' : 'unavailable' : 'partial', dataSource: youtube ? hasTranscript ? 'transcript' : 'none' : 'existing-clips', confidence: youtube ? hasTranscript ? 'transcript-supported' : 'unavailable' : 'metadata-only', confidenceExplanation: 'Evidence timing is supported; scores are not calibrated probabilities.', warnings: youtube && !hasTranscript ? ['Attach a legitimately obtained transcript.'] : !youtube ? ['Shorter clip shown at its actual duration; no padding.'] : [], analyzedAt: '', scan: null } });
+  });
+  await page.goto(url); await page.getByLabel('Source URL', { exact: true }).fill('https://twitch.tv/caseoh_/schedule?vodID=123');
+  await page.getByText('AI chosen', { exact: true }).waitFor();
+  assert.equal(await page.getByText('30–60', { exact: true }).count(), 0);
+  assert.equal(await page.getByLabel('Attach transcript', { exact: true }).count(), 1);
+  await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByRole('heading', { name: 'Moment One', exact: true }).waitFor();
+  assert.equal(await page.getByText('2 highlights found', { exact: true }).count(), 1); await page.getByText('12.5s', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: /Generate.*clips|Analyze stream/ }).count(), 0);
+  await page.getByRole('button', { name: 'Copy timestamp for Moment One', exact: true }).click(); assert.match(await page.evaluate(() => navigator.clipboard.readText()), /01:01:01.*01:01:46/);
+  await page.getByRole('button', { name: 'Copy All Timestamps', exact: true }).click(); assert.ok((await page.evaluate(() => navigator.clipboard.readText())).includes('Shorter reaction'));
+  await page.getByRole('button', { name: 'Preview Moment One', exact: true }).click(); assert.ok((await page.locator('iframe[title="Original livestream preview"]').getAttribute('src'))?.includes('time=1h1m1s'));
+  await mkdir('test-artifacts', { recursive: true });
+  const jsonDownload = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export JSON', exact: true }).click(); await (await jsonDownload).saveAs('test-artifacts/analyzer-browser.json');
+  assert.equal(JSON.parse(await readFile('test-artifacts/analyzer-browser.json', 'utf8')).highlights.length, 2);
+  const csvDownload = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export CSV', exact: true }).click(); await (await csvDownload).saveAs('test-artifacts/analyzer-browser.csv'); assert.ok((await readFile('test-artifacts/analyzer-browser.csv', 'utf8')).includes('01:01:01'));
+  await page.screenshot({ path: 'test-artifacts/timestamp-analyzer-desktop.png', fullPage: true });
+  youtube = true; await page.getByLabel('Source URL', { exact: true }).fill('https://youtu.be/abcdefghijk'); await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByRole('heading', { name: 'Highlights unavailable', exact: true }).waitFor();
+  await page.getByLabel('Attach transcript', { exact: true }).setInputFiles({ name: 'owned.srt', mimeType: 'text/plain', buffer: Buffer.from('1\n00:00:00,000 --> 00:00:45,000\nOwned synthetic transcript.') });
+  await page.getByLabel('I have permission to process this transcript.', { exact: true }).check(); await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByText('5 highlights found', { exact: true }).waitFor();
+  await page.getByText('85s', { exact: true }).waitFor(); await page.getByText('12.5s', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Copy timestamp for Moment One', exact: true }).click(); assert.match(await page.evaluate(() => navigator.clipboard.readText()), /01:01:01.*01:02:26/);
+  await page.getByRole('button', { name: 'Preview Moment One', exact: true }).click(); assert.ok((await page.locator('iframe[title="Original livestream preview"]').getAttribute('src'))?.includes('/embed/abcdefghijk?start=3661'));
+  await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); await page.screenshot({ path: 'test-artifacts/timestamp-analyzer-mobile.png', fullPage: true });
+  youtube = false; await page.getByLabel('Source URL', { exact: true }).fill('https://www.twitch.tv/videos/123');
+  await page.getByLabel('Attach transcript', { exact: true }).setInputFiles({ name: 'twitch.srt', mimeType: 'text/plain', buffer: Buffer.from('1\n00:00:00,000 --> 00:01:25,000\nA complete setup and payoff.') });
+  await page.getByLabel('I have permission to process this transcript.', { exact: true }).check(); await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByRole('heading', { name: 'Moment One', exact: true }).waitFor(); assert.equal(hasTranscript, true);
+  await page.getByLabel('Source URL', { exact: true }).fill('https://evil.test/watch?v=abcdefghijk'); const before = requests; await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByRole('alert').waitFor(); assert.equal(requests, before);
+  assert.deepEqual(errors, []); console.log('Timestamp UI checks passed: Twitch offset displays/short clips, seek preview, copy, JSON/CSV, YouTube unavailable/transcript states, mobile and invalid URLs. APIs mocked; no platform media acquired.');
+} finally { await browser.close(); }

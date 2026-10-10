@@ -1,0 +1,106 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "CUTLINE ●" [ref=e5] [cursor=pointer]:
+      - /url: "#"
+      - text: CUTLINE
+      - generic [ref=e13]: ●
+    - generic [ref=e14]: YOUR WORKSPACE
+    - navigation [ref=e15]:
+      - button "Workbench AI" [ref=e16] [cursor=pointer]:
+        - text: Workbench
+        - generic [ref=e21]: AI
+      - button "Recordings 0" [ref=e22] [cursor=pointer]:
+        - text: Recordings
+        - generic [ref=e25]: "0"
+      - button "Local setup" [ref=e26] [cursor=pointer]
+    - generic [ref=e30]:
+      - strong [ref=e34]: Your footage. Your machine.
+      - paragraph [ref=e35]: Local transcription and AI ranking. Your recordings stay with you.
+      - generic [ref=e36]: LOCAL WORKSPACE
+    - generic [ref=e38]:
+      - generic [ref=e39]: LC
+      - generic [ref=e40]:
+        - strong [ref=e41]: Local creator
+        - generic [ref=e42]: Personal workspace
+      - button "Open setup help" [ref=e43] [cursor=pointer]
+  - generic [ref=e46]:
+    - banner [ref=e47]:
+      - generic [ref=e48]:
+        - text: Workspace
+        - generic [ref=e51]: AI Livestream Highlight Analyzer
+      - generic [ref=e52]:
+        - generic [ref=e53]: RUNS LOCALLY
+        - button "New project" [ref=e55] [cursor=pointer]
+    - main [ref=e57]:
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - generic [ref=e60]: MADE FOR THE MOMENTS THAT MATTER
+          - heading "Long streams. Short-form gold." [level=1] [ref=e64]
+          - paragraph [ref=e65]: Find evidence-supported highlight timestamps. Review the original stream and clip manually.
+        - generic [ref=e66]: MVP / 01
+      - generic "Clip workflow mode" [ref=e67]:
+        - button "Analyze livestream highlights" [pressed] [ref=e68] [cursor=pointer]:
+          - generic [ref=e72]:
+            - strong [ref=e73]: Analyze livestream highlights
+            - generic [ref=e74]: Twitch & YouTube · Timestamps
+        - button "Discover existing VOD clips" [ref=e77] [cursor=pointer]:
+          - generic [ref=e83]:
+            - strong [ref=e84]: Discover existing VOD clips
+            - generic [ref=e85]: Public clips · Views & titles
+        - button "Create live Twitch clips" [ref=e86] [cursor=pointer]:
+          - generic [ref=e90]:
+            - strong [ref=e91]: Create live Twitch clips
+            - generic [ref=e92]: Viewer account · Live moments
+        - button "Analyze authorized recording" [ref=e93] [cursor=pointer]:
+          - generic [ref=e98]:
+            - strong [ref=e99]: Analyze authorized recording
+            - generic [ref=e100]: Local AI · Vertical exports
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - heading "Livestream highlight analyzer" [level=2] [ref=e110]
+                - generic [ref=e111]: TIMESTAMPS ONLY
+              - generic [ref=e112]:
+                - generic [ref=e113]: Source URL
+                - textbox "Source URL" [ref=e114]:
+                  - /placeholder: Paste a Twitch VOD or YouTube livestream URL
+                  - text: https://www.twitch.tv/videos/2895693134
+                - generic [ref=e115]: Twitch VOD/schedule with vodID · YouTube watch/live/youtu.be
+                - generic [ref=e116]:
+                  - generic [ref=e117]: Attach transcript
+                  - button "Attach transcript" [ref=e121]
+                  - generic [ref=e122]: Let Ollama choose the best clip range from your transcript. SRT, VTT, JSON or timestamped TXT · up to 2 MB · original video timeline
+                - button "Analyze Highlights" [ref=e123] [cursor=pointer]
+                - generic [ref=e129]: Attach a transcript for Ollama to choose clip ranges. Without one, results use existing Twitch clip offsets and metadata scores.
+                - button "Use an authorized recording" [ref=e134] [cursor=pointer]
+            - generic [ref=e140]:
+              - heading "Manual clipping workflow" [level=2] [ref=e145]
+              - generic [ref=e146]:
+                - generic [ref=e147]:
+                  - generic [ref=e148]: HIGHLIGHTS
+                  - strong [ref=e149]: Up to 5
+                - generic [ref=e150]:
+                  - generic [ref=e151]: CLIP RANGE
+                  - strong [ref=e152]: AI chosen
+                - generic [ref=e153]:
+                  - generic [ref=e154]: OUTPUT
+                  - strong [ref=e155]: Seek times
+              - paragraph [ref=e156]: Ollama chooses natural start and end times from your transcript, keeping the setup and payoff together with no fixed clip length. Review the suggested range in the original stream, then clip it yourself. Existing Twitch clips keep their actual duration.
+          - generic [ref=e157]:
+            - generic [ref=e158]:
+              - heading "Original livestream preview" [level=2] [ref=e163]
+              - generic [ref=e165]:
+                - heading "Find the timestamps. Clip the original." [level=3] [ref=e169]: Find the timestamps.Clip the original.
+                - paragraph [ref=e170]: Paste a source URL to find evidence-supported moments.
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - heading "Highlight timestamps" [level=2] [ref=e178]
+                - generic [ref=e179]: "0"
+              - generic [ref=e180]:
+                - heading "Your best moments, with evidence." [level=3] [ref=e188]
+                - paragraph [ref=e189]: Analyze a VOD’s existing clips or a supplied transcript.Results are never padded to five.
+        - generic [ref=e190]:
+          - generic [ref=e191]: Timestamp analysis only. No platform video downloads or automatic exports.
+          - generic [ref=e195]: Review the evidence. Clip manually.

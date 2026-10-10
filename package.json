@@ -1,0 +1,53 @@
+{
+  "name": "ai-stream-clips",
+  "version": "1.0.0",
+  "description": "Local AI stream highlights for authorized recordings",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch src/server/index.ts\" \"vite --host 127.0.0.1\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:media": "tsx --test tests/media.test.ts",
+    "test:ui": "tsx scripts/check-ui.ts",
+    "test:twitch-ui": "tsx scripts/check-twitch-ui.ts",
+    "test:analyzer-ui": "tsx scripts/check-analyzer-ui.ts",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "start": "node dist/server/server/index.js",
+    "demo:recording": "tsx scripts/create-demo.ts",
+    "smoke:local": "tsx scripts/smoke-local.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "ipaddr.js": "^2.5.0",
+    "lucide-react": "^1.54.0",
+    "multer": "^2.4.0",
+    "openai": "^7.31.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/archiver": "^8.0.0",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}
