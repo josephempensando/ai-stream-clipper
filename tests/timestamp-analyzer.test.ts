@@ -46,6 +46,21 @@ test('YouTube supplied transcript yields five supported highlights and reuses ca
   assert.ok(ordered.every((h, i) => h.duration === 10 && h.end <= 300 && (!i || h.start >= ordered[i - 1]!.end)));
   const count = f.ranks(); await f.analyzer.analyze('https://youtube.com/live/abcdefghijk', transcript); assert.equal(f.ranks(), count);
 });
+
+test('transcript analysis recovers bad batch IDs and retains partial results without accepting invented timing', async () => {
+  let fail = true; const requested: string[][] = [];
+  const f = fixture([], { rank: async cs => {
+    requested.push(cs.map(c => c.id));
+    return cs.map(c => ({ ...c, id: fail && c.id === 'transcript-context-0' ? 'invented-id' : c.id, end: c.start + 5, score: 80, title: 'Reaction', explanation: 'Supported reaction.' }));
+  } });
+  const partial = await f.analyzer.analyze('https://youtu.be/abcdefghijk', transcript);
+  assert.ok(partial.highlights.length > 0); assert.equal(partial.status, 'partial');
+  assert.ok(partial.highlights.every(h => h.id !== 'invented-id' && h.start >= 5));
+  assert.ok(partial.warnings.some(w => /1.*context.*(skip|analyz)/i.test(w)));
+  fail = false; requested.length = 0;
+  const recovered = await f.analyzer.analyze('https://youtu.be/abcdefghijk', transcript);
+  assert.equal(recovered.status, 'ready'); assert.deepEqual(requested, [['transcript-context-0']]);
+});
 test('YouTube without transcript or known video duration reports unavailable, with no model calls', async () => {
   for (const [options, attachment] of [[{}, undefined], [{ youtubeDuration: 'PT0S' }, transcript]] as const) {
     const f = fixture([], options); const result = await f.analyzer.analyze('https://youtube.com/watch?v=abcdefghijk', attachment);

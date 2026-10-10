@@ -1,26 +1,27 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import type { Candidate, Highlight, LivestreamSource, Segment, TimestampAnalysis, TimestampHighlight } from '../shared/types.js';
+import type { Candidate, Highlight, LivestreamSource, TimestampAnalysis, TimestampHighlight } from '../shared/types.js';
 import { formatTimestamp, parseLivestreamSource, timestampLink } from '../shared/livestream.js';
 import { TwitchClient, parseTwitchDuration } from './twitch.js';
 import { rankPublicClips } from './twitch-public.js';
 import { YouTubeClient } from './youtube.js';
 import { selectHighlights } from './analysis.js';
-import { parseTranscript, transcriptCandidates, transcriptSupports } from './transcripts.js';
+import { parseTranscript, transcriptCandidates } from './transcripts.js';
 import { config } from './config.js';
 import { rankBatch } from './models.js';
 import { readJson, writeJson } from './store.js';
 import { TwitchApiError } from './twitch-http.js';
+import { recoverRankings, validateCachedRankings } from './ranking.js';
 
 export interface TranscriptAttachment { name: string; text: string; permission: true }
-type RankTranscript = (candidates: Candidate[]) => Promise<Highlight[]>;
+type RankTranscript = (candidates: Candidate[], onWarning?: (warning: string) => void) => Promise<Highlight[]>;
 const selection = (highlights: TimestampHighlight[], count: number) => {
   const byId = new Map(highlights.map(h => [h.id, h]));
   return selectHighlights(highlights.map(h => ({ id: h.id, start: h.start, end: h.end, score: h.score, heuristicScore: 0, title: h.title, explanation: h.description, evidence: [], transcript: h.transcript || '', frameTimes: [] })), count).map(h => byId.get(h.id)!);
 };
 export class TimestampAnalyzer {
   private activeTranscript = false;
-  constructor(private readonly twitch = new TwitchClient(), private readonly youtube = new YouTubeClient(), private readonly root = config.dataDir, private readonly rank: RankTranscript = cs => rankBatch(cs, [], { model: config.transcriptOllamaModel, transcriptOnly: true })) {}
+  constructor(private readonly twitch = new TwitchClient(), private readonly youtube = new YouTubeClient(), private readonly root = config.dataDir, private readonly rank: RankTranscript = (cs, onWarning) => rankBatch(cs, [], { model: config.transcriptOllamaModel, transcriptOnly: true, ...(onWarning ? { onWarning } : {}) })) {}
   async analyze(input: string, attachment?: TranscriptAttachment): Promise<TimestampAnalysis> {
     const parsed = parseLivestreamSource(input);
     if (parsed.platform === 'twitch' && !attachment) return this.twitchHighlights(parsed.id);
@@ -39,16 +40,24 @@ export class TimestampAnalyzer {
     try {
       const key = createHash('sha256').update(JSON.stringify({ version: 'transcript-natural-ranges-v3', platform: source.platform, video: source.id, duration: source.duration, segments: transcript.segments, model: config.transcriptOllamaModel })).digest('hex');
       const file = path.join(this.root, 'analyzer-cache', `${key}.json`);
-      let ranked = await readJson<Highlight[]>(file);
-      if (!ranked) {
-        ranked = [];
-        for (let i = 0; i < candidates.length; i += 3) {
-          const batch = candidates.slice(i, i + 3); const rows = await this.rank(batch);
-          this.validateModelRows(rows, batch, transcript.segments, source.duration); ranked.push(...rows);
-        }
-        await writeJson(file, ranked);
+      let ranked = await readJson<Highlight[]>(file) || [];
+      try { ranked = validateCachedRankings(ranked, candidates, true); }
+      catch { ranked = []; base.warnings.push('Invalid cached rankings were discarded and analyzed again.'); }
+      const recoveryWarnings = new Set<string>(); let stopped: Error | null = null;
+      const missing = candidates.filter(c => !ranked.some(row => row.id === c.id));
+      for (let i = 0; i < missing.length && !stopped; i += 3) {
+        const recovered = await recoverRankings(missing.slice(i, i + 3), [], cs => this.rank(cs, warning => recoveryWarnings.add(warning)), {
+          transcriptOnly: true,
+          onWarning: warning => recoveryWarnings.add(warning),
+          onAccepted: async rows => { ranked.push(...rows); await writeJson(file, ranked); },
+        });
+        stopped = recovered.error;
       }
-      this.validateModelRows(ranked, candidates, transcript.segments, source.duration);
+      if (!ranked.length) throw stopped || new Error('Ollama could not return valid transcript timings after smaller requests and retries. Completed rankings are saved; retry or choose a more capable model.');
+      ranked = validateCachedRankings(ranked, candidates, true);
+      base.warnings.push(...recoveryWarnings);
+      if (ranked.length < candidates.length) base.warnings.push(`${candidates.length - ranked.length} reading context(s) could not be analyzed and were skipped. Valid results were retained; analyze again to retry missing work.`);
+      if (stopped) base.warnings.push(stopped.message);
       // Preserve the model's strongest complete moments before filling spare slots.
       const best: Highlight[] = [];
       for (const highlight of [...ranked].sort((a, b) => b.score - a.score)) {
@@ -56,25 +65,13 @@ export class TimestampAnalyzer {
         if (best.every(h => highlight.end <= h.start || highlight.start >= h.end)) best.push(highlight);
       }
       base.highlights = best.map(h => this.output(source, { id: h.id, start: h.start, end: h.end, title: h.title, description: h.explanation, score: h.score, viewCount: null, clipUrl: null, transcript: h.transcript, dataSource: 'transcript', confidence: 'transcript-supported' }));
-      base.status = base.highlights.length === 5 ? 'ready' : base.highlights.length ? 'partial' : 'unavailable';
+      base.status = base.highlights.length === 5 && ranked.length === candidates.length ? 'ready' : base.highlights.length ? 'partial' : 'unavailable';
       base.confidence = base.highlights.length ? 'transcript-supported' : 'unavailable';
       base.confidenceExplanation = 'Ollama chooses natural start/end boundaries from user-supplied transcript cues, within the official video duration, without a fixed clip length. Entertainment scores are local-model judgments, not calibrated probabilities. No audiovisual analysis occurred.';
       base.warnings.push('Transcript timing and association with this video are supplied by you; automatic verification against video/audio is unavailable.', 'Analysis samples up to 120 overlapping contexts of about three minutes and 6,000 text characters; longer moments crossing context boundaries may be missed. Short gaps of up to eight seconds may occur inside a context.');
       if (base.highlights.length < 5) base.warnings.push(`Selected ${base.highlights.length} non-overlapping highlights, prioritizing the strongest complete moments over filling five slots.`);
       return base;
     } finally { this.activeTranscript = false; }
-  }
-  private validateModelRows(rows: Highlight[], candidates: Candidate[], segments: Segment[], duration: number): void {
-    const seen = new Set<string>();
-    if (!Array.isArray(rows) || rows.length !== candidates.length) throw new Error('Ollama did not rank every transcript candidate. Retry analysis.');
-    for (const row of rows) {
-      const original = candidates.find(c => c.id === row.id);
-      if (!original || seen.has(row.id) || row.start < original.start || row.end > original.end || !transcriptSupports(original.cues || segments, row.start, row.end, duration)) throw new Error('Ollama returned unsupported timing or duplicate/unknown candidates. No highlights were accepted.');
-      if (!Number.isFinite(row.score) || row.score < 0 || row.score > 100 || typeof row.title !== 'string' || !row.title.trim() || row.title.length > 100 || typeof row.explanation !== 'string' || !row.explanation.trim() || row.explanation.length > 1200) throw new Error('Ollama returned an invalid ranking.');
-      // Evidence and transcript must remain those supplied to the model, including cached rows.
-      row.transcript = (original.cues || segments).filter(s => s.end > row.start && s.start < row.end).map(s => s.text).join(' '); row.evidence = original.evidence; row.heuristicScore = original.heuristicScore;
-      seen.add(row.id);
-    }
   }
   private output(source: LivestreamSource, data: Omit<TimestampHighlight, 'startTime' | 'endTime' | 'duration' | 'originalUrl'>): TimestampHighlight {
     return { ...data, startTime: formatTimestamp(data.start), endTime: formatTimestamp(data.end), duration: data.end - data.start, originalUrl: timestampLink(source.platform, source.id, data.start) };

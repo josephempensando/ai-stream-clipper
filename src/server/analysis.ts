@@ -10,18 +10,7 @@ export function buildCandidates(segments: Segment[], evidence: Evidence[], durat
   if (!cues.length && !evidence.length) return [];
   const baseline = evidence.length ? evidence.reduce((n, e) => n + e.loudness, 0) / evidence.length : -40;
   const contexts: Candidate[] = [];
-  // Bound text per inference, not clip duration. Overlapping reading contexts
-  // preserve complete cues and spread attention across the whole recording.
-  const starts = cues.length <= 120 ? cues.map((_, i) => i) : Array.from({ length: 120 }, (_, i) => Math.floor(i * (cues.length - 1) / 119));
-  if (!starts.length) starts.push(0);
-  for (const index of starts) {
-    const speech: Segment[] = []; let characters = 0;
-    for (const cue of cues.slice(index)) {
-      if (speech.length && characters + cue.text.length > 6000) break;
-      speech.push(cue); characters += cue.text.length;
-    }
-    const start = speech.length ? Math.max(0, speech[0]!.start - 8) : 0;
-    const end = speech.length ? Math.min(duration, Math.max(...speech.map(s => s.end)) + 8) : duration;
+  const makeContext = (id: string, start: number, end: number, speech: Segment[], eventFrames?: number[]): Candidate => {
     const signals = evidence.filter(e => e.time >= start && e.time < end);
     const loud = signals.filter(e => e.loudness > baseline + 6).length;
     const scenes = signals.filter(e => e.scene).length;
@@ -31,11 +20,44 @@ export function buildCandidates(segments: Segment[], evidence: Evidence[], durat
     if (loud) clues.push(`Context: ${loud} loudness spikes relative to recording baseline`);
     if (scenes) clues.push(`Context: ${scenes} scene changes`);
     if (reactive) clues.push(`Context: ${reactive} reaction/laughter language cues (not confirmed laughter)`);
-    clues.push(...signals.filter(e => e.scene || e.loudness > baseline + 6).slice(0, 12).map(e => `At ${e.time}s: ${e.scene ? 'scene change; ' : ''}loudness ${e.loudness.toFixed(1)} dB`));
+    const notable = signals.filter(e => e.scene || e.loudness > baseline + 6);
+    const sampled = notable.length <= 12 ? notable : Array.from({ length: 12 }, (_, i) => notable[Math.floor(i * (notable.length - 1) / 11)]!);
+    clues.push(...sampled.map(e => `At ${e.time}s: ${e.scene ? 'scene change; ' : ''}loudness ${e.loudness.toFixed(1)} dB`));
     if (!clues.length) clues.push('Context window; no strong energy signal');
-    contexts.push({ id: `recording-context-${index}`, start, end, heuristicScore, evidence: clues, transcript: speech.map(s => s.text).join(' '), cues: speech, frameTimes: [...new Set([start, (start + end) / 2, end - Math.min(0.1, (end - start) / 2)])] });
+    return { id, start, end, heuristicScore, evidence: clues, transcript: speech.map(s => s.text).join(' '), cues: speech, frameTimes: [...new Set(eventFrames || [start, (start + end) / 2, end - Math.min(0.1, (end - start) / 2)])] };
+  };
+  // Bound text per inference, not clip duration. Overlapping reading contexts
+  // preserve complete cues and spread attention across the whole recording.
+  const starts = cues.length <= 120 ? cues.map((_, i) => i) : Array.from({ length: 120 }, (_, i) => Math.floor(i * (cues.length - 1) / 119));
+  for (const index of starts) {
+    const speech: Segment[] = []; let characters = 0;
+    for (const cue of cues.slice(index)) {
+      if (speech.length && characters + cue.text.length > 6000) break;
+      speech.push(cue); characters += cue.text.length;
+    }
+    const start = speech.length ? Math.max(0, speech[0]!.start - 8) : 0;
+    const end = speech.length ? Math.min(duration, Math.max(...speech.map(s => s.end)) + 8) : duration;
+    contexts.push(makeContext(`recording-context-${index}`, start, end, speech));
   }
-  return contexts;
+  // Preserve non-speech gameplay and reactions outside transcript contexts.
+  const uncovered = evidence.filter(e => e.time >= 0 && e.time < duration && (e.scene || e.loudness > baseline + 6) && !contexts.some(c => e.time >= c.start && e.time < c.end));
+  const gaps = new Map<string, { start: number; end: number; events: number[] }>();
+  for (const event of uncovered) {
+    const before = cues.filter(s => s.end <= event.time).at(-1);
+    const after = cues.find(s => s.start > event.time);
+    const start = before?.end || 0; const end = after?.start ?? duration;
+    const key = `${start}-${end}`;
+    const gap = gaps.get(key) || { start, end, events: [] };
+    gap.events.push(event.time); gaps.set(key, gap);
+  }
+  const eventContexts: Candidate[] = [];
+  for (const [key, gap] of gaps) {
+    const frames = gap.events.length <= 3 ? gap.events : [gap.events[0]!, gap.events[Math.floor(gap.events.length / 2)]!, gap.events.at(-1)!];
+    eventContexts.push(makeContext(`recording-events-${key}`, gap.start, gap.end, [], frames));
+  }
+  const evenly = (rows: Candidate[], count: number) => rows.length <= count ? rows : Array.from({ length: count }, (_, i) => rows[Math.floor(i * (rows.length - 1) / Math.max(1, count - 1))]!);
+  const events = evenly(eventContexts, Math.min(30, 120 - Math.min(contexts.length, 90)));
+  return [...evenly(contexts, 120 - events.length), ...events];
 }
 export function selectBestHighlights(highlights: Highlight[], count = 5): Highlight[] {
   const selected: Highlight[] = [];

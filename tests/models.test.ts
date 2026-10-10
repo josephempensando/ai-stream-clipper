@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateRankings, rankBatch } from '../src/server/models.js';
 import type { Candidate } from '../src/shared/types.js';
+import { config } from '../src/server/config.js';
+import { recoverRankings } from '../src/server/ranking.js';
 const candidates: Candidate[] = [{ id: 'a', start: 0, end: 45, heuristicScore: 5, evidence: [], transcript: 'hello', frameTimes: [5] }];
 test('model ranking accepts known IDs but cannot invent timestamps or change evidence', () => {
   const result = validateRankings({ rankings: [{ id: 'a', score: 70, title: 'Hello', explanation: 'A complete scene', start: -100 }] }, candidates);
@@ -59,4 +61,61 @@ test('recording inference rejects invalid model-selected intervals instead of si
   for (const timing of [{}, { start: -1, end: 12 }, { start: 0, end: 200 }, { start: 12, end: 12 }]) {
     range = timing; await assert.rejects(rankBatch(candidates, [], { chooseRanges: true }));
   }
+});
+
+test('natural inference requests one required result per ID instead of an array allowing repeated IDs', async t => {
+  t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+    const payload = JSON.parse(String(init.body));
+    assert.deepEqual(payload.format.properties.rankings.required, ['a']);
+    return Response.json({ message: { content: JSON.stringify({ rankings: { a: { start: 0, end: 12, score: 90, title: 'Reaction', explanation: 'Complete reaction.' } } }), role: 'assistant' }, done: true, done_reason: 'stop' });
+  });
+  assert.equal((await rankBatch(candidates, [], { chooseRanges: true }))[0]?.end, 12);
+});
+
+test('memory exhaustion retries with a smaller context and keeps the model-selected range', async t => {
+  const sizes: number[] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+    sizes.push(JSON.parse(String(init.body)).options.num_ctx);
+    if (sizes.length === 1) return Response.json({ error: 'model runner: unable to allocate memory' }, { status: 500 });
+    return Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: 0, end: 12, score: 90, title: 'Reaction', explanation: 'Complete reaction.' }] }) }, done: true });
+  });
+  const highlights = await rankBatch(candidates, [], { chooseRanges: true });
+  assert.equal(highlights[0]?.end, 12);
+  assert.equal(sizes.length, 2); assert.ok(sizes[1]! < sizes[0]!);
+});
+
+test('large reading contexts are divided into overlapping complete cues before exceeding the prompt budget', async t => {
+  const previous = config.ollamaContextTokens; config.ollamaContextTokens = 4096; t.after(() => { config.ollamaContextTokens = previous; });
+  const context: Candidate = { ...candidates[0]!, end: 200, cues: Array.from({ length: 20 }, (_, i) => ({ start: i * 10, end: i * 10 + 10, text: `Cue ${i}: ${'word '.repeat(100)}` })) };
+  const seen: number[][] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+    const payload = JSON.parse(String(init.body));
+    const prompt = payload.messages.at(-1).content as string;
+    assert.ok(Buffer.byteLength(prompt) < payload.options.num_ctx * 2);
+    const input = JSON.parse(prompt.slice(prompt.lastIndexOf('\n') + 1)) as { id: string; cues: { start: number; end: number }[] }[];
+    const cues = input[0]!.cues; seen.push(cues.map(c => c.start));
+    return Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: cues[0]!.start, end: cues[0]!.end, score: 80, title: 'Moment', explanation: 'Supported cue.' }] }) }, done: true });
+  });
+  const result = await rankBatch([context], [], { chooseRanges: true });
+  assert.equal(result.length, 1); assert.ok(seen.length > 1);
+  assert.ok(seen.some(times => times.includes(0))); assert.ok(seen.some(times => times.includes(190)));
+  assert.ok(seen.some((times, i) => i > 0 && times.some(time => seen[i - 1]!.includes(time))));
+});
+
+test('an unavailable model stops recovery instead of retrying every context', async t => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; return Response.json({ error: 'model missing' }, { status: 404 }); });
+  const contexts = [0, 1, 2].map(i => ({ ...candidates[0]!, id: `context-${i}` }));
+  const result = await recoverRankings(contexts, [], (cs, images) => rankBatch(cs, images, { chooseRanges: true }));
+  assert.deepEqual(result.highlights, []); assert.match(result.error?.message || '', /installed/); assert.equal(calls, 1);
+});
+
+test('malformed JSON retries an isolated context and keeps only the validated result', async t => {
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    return Response.json({ message: { content: calls === 1 ? '{incomplete' : JSON.stringify({ rankings: { a: { start: 0, end: 12, score: 90, title: 'Reaction', explanation: 'Supported.' } } }) } });
+  });
+  const result = await recoverRankings(candidates, [], (cs, images) => rankBatch(cs, images, { chooseRanges: true }));
+  assert.equal(result.highlights[0]?.end, 12); assert.equal(result.error, null); assert.equal(calls, 2);
 });

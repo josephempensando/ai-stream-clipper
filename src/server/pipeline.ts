@@ -4,15 +4,16 @@ import path from 'node:path';
 import { config } from './config.js';
 import { readJson, writeJson } from './store.js';
 import { extractAudio, detectEvidence, sampleFrame } from './media.js';
-import { transcribeChunk, rankBatch, validateNaturalRankings } from './models.js';
+import { transcribeChunk, rankBatch } from './models.js';
 import { offsetSegments, buildCandidates, selectBestHighlights } from './analysis.js';
+import { recoverRankings, validateCachedRankings } from './ranking.js';
 import type { Candidate, Evidence, Highlight, Job, Segment, Transcript } from '../shared/types.js';
 
 export interface PipelineAdapters {
   transcribe: (wav: string, dir: string) => Promise<Segment[]>;
-  rank: (candidates: Candidate[], images: string[]) => Promise<Highlight[]>;
+  rank: (candidates: Candidate[], images: string[], settings?: { onWarning: (warning: string) => void }) => Promise<Highlight[]>;
 }
-export const localAdapters: PipelineAdapters = { transcribe: transcribeChunk, rank: (candidates, images) => rankBatch(candidates, images, { chooseRanges: true }) };
+export const localAdapters: PipelineAdapters = { transcribe: transcribeChunk, rank: (candidates, images, settings) => rankBatch(candidates, images, { chooseRanges: true, ...settings }) };
 export async function analyzeRecording(job: Job, file: string, root: string, progress: (stage: string, percent: number) => Promise<void>, adapters = localAdapters): Promise<{ highlights: Highlight[]; transcript: Transcript; warnings: string[] }> {
   if (!job.media.hasAudio) throw new Error('Recording has no audio track. Full Whisper analysis requires audio.');
   const isLocal = adapters === localAdapters;
@@ -44,28 +45,40 @@ export async function analyzeRecording(job: Job, file: string, root: string, pro
   const rangeCache = path.join(cache, 'natural-ranges-v1');
   await writeJson(path.join(rangeCache, 'candidates.json'), candidates);
   const ranked: Highlight[] = []; const size = config.vision ? 2 : 3;
+  const recoveryWarnings = new Set<string>(); let stopped: Error | null = null;
   for (let i = 0; i < candidates.length; i += size) {
     const batch = candidates.slice(i, i + size);
     await progress(`Ranking moments ${i + 1}–${i + batch.length} of ${candidates.length}`, 65 + 30 * i / candidates.length);
     const fileName = path.join(rangeCache, `ranking-${i}.json`);
-    let rankings = await readJson<Highlight[]>(fileName);
-    if (!rankings) {
+    let rankings = await readJson<Highlight[]>(fileName) || [];
+    try { rankings = validateCachedRankings(rankings, batch); }
+    catch { rankings = []; recoveryWarnings.add('An invalid cached ranking was discarded and analyzed again.'); }
+    const missing = batch.filter(c => !rankings.some(row => row.id === c.id));
+    if (missing.length && !stopped) {
       const images: string[] = [];
-      for (const c of batch) {
+      for (const c of missing) {
         // First frame is always available for review; all three are sent to a vision model.
         for (const time of config.vision ? c.frameTimes : c.frameTimes.slice(0, 1)) {
           const jpeg = await sampleFrame(file, time, path.join(cache, 'frames', `${c.id}-${time}.jpg`));
           if (config.vision) images.push(jpeg);
         }
       }
-      rankings = validateNaturalRankings({ rankings: await adapters.rank(batch, images) }, batch);
-      await writeJson(fileName, rankings);
+      const recovered = await recoverRankings(missing, images, (cs, frames) => adapters.rank(cs, frames, { onWarning: warning => recoveryWarnings.add(warning) }), {
+        onWarning: warning => recoveryWarnings.add(warning),
+        onProgress: stage => progress(stage, 65 + 30 * i / candidates.length),
+        onAccepted: async rows => { rankings.push(...rows); await writeJson(fileName, rankings); },
+      });
+      stopped = recovered.error;
     }
-    ranked.push(...validateNaturalRankings({ rankings }, batch));
+    ranked.push(...validateCachedRankings(rankings, batch));
   }
+  if (candidates.length && !ranked.length) throw stopped || new Error('Ollama could not return valid highlight timings after smaller requests and retries. Completed transcription is saved. Try analyzing again or choose a more capable local model.');
   const highlights = selectBestHighlights(ranked);
   const warnings = [`Heuristic cues include loudness, reaction language and scenes; laughter is not independently classified.`, ...(config.vision ? [] : ['Text model used transcript and scene metadata; sampled frames were not interpreted by a vision model.'])];
   if (!isLocal) warnings.unshift('TEST ONLY: transcription and ranking used injected model doubles; actual Whisper/Ollama inference did not run.');
+  warnings.push(...recoveryWarnings);
+  if (ranked.length < candidates.length) warnings.push(`${candidates.length - ranked.length} reading context(s) could not be analyzed and were skipped. Valid highlights are ready; Analyze again retries missing work using cached transcription and rankings.`);
+  if (stopped) warnings.push(stopped.message);
   if (highlights.length < 5) warnings.push(`Found ${highlights.length} non-overlapping highlights; kept the model-chosen boundaries rather than cutting moments to reach five.`);
   await progress('Highlights ready for review', 100);
   return { highlights, transcript, warnings };

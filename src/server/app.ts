@@ -127,16 +127,20 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   }
   app.post('/api/jobs/upload', upload.single('media'), async (req, res) => {
     if (!req.file) throw new Error('Select an MP4 recording.');
-    try { const meta = uploadMeta.parse(req.body); res.status(201).json(await acceptMedia(req.file.path, req.file.originalname, 'upload', meta)); }
+    let job: Job;
+    try { const meta = uploadMeta.parse(req.body); job = await acceptMedia(req.file.path, req.file.originalname, 'upload', meta); }
     finally { await rm(req.file.path, { force: true }); }
+    res.status(201).json(job);
   });
   app.post('/api/jobs/import', async (req, res) => {
     const input = z.object({ url: z.string().url().max(4096), permission: z.literal(true), vodId: z.string().default(''), vodOffset: z.number().finite().nonnegative().default(0) }).parse(req.body);
     const file = path.join(root, 'uploads', randomUUID());
+    let job: Job;
     try {
       await downloadApproved(input.url, file, config.approvedHosts, config.maxBytes);
-      res.status(201).json(await acceptMedia(file, 'approved-recording.mp4', 'approved-url', { ...input, permission: 'true' }));
+      job = await acceptMedia(file, 'approved-recording.mp4', 'approved-url', { ...input, permission: 'true' });
     } finally { await rm(file, { force: true }); }
+    res.status(201).json(job);
   });
   app.post('/api/jobs/:id/analyze', async (req, res) => { res.status(202).json(await manager.analyze(String(req.params.id))); });
   app.post('/api/jobs/:id/render', async (req, res) => {

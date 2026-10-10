@@ -22,6 +22,7 @@ export const config = {
   ollamaUrl: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
   ollamaModel: process.env.OLLAMA_MODEL || 'llama3.2:3b', vision: process.env.OLLAMA_VISION === 'true',
   ollamaTimeout: positive('OLLAMA_TIMEOUT_MS', 180_000),
+  ollamaContextTokens: positive('OLLAMA_NUM_CTX', 4096, 131072),
   maxBytes: positive('MAX_UPLOAD_GB', 20, 100) * 1024 ** 3,
   approvedHosts: (process.env.APPROVED_MEDIA_HOSTS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean),
   twitchClientId: process.env.TWITCH_CLIENT_ID || '', twitchSecret: process.env.TWITCH_CLIENT_SECRET || '',
@@ -34,4 +35,5 @@ export const config = {
 // This MVP is a local tool, not an authenticated multi-user service.
 if (!['127.0.0.1', '::1', 'localhost'].includes(config.host)) throw new Error('HOST must be loopback for this local MVP.');
 const ollama = new URL(config.ollamaUrl);
+if (config.ollamaContextTokens < 2048) throw new Error('OLLAMA_NUM_CTX must be at least 2048.');
 if (!['127.0.0.1', 'localhost', '[::1]'].includes(ollama.hostname) || !['http:', 'https:'].includes(ollama.protocol)) throw new Error('Ollama must be a local endpoint.');

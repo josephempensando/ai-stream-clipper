@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { createDemo } from '../scripts/create-demo.js';
 import { probe, detectEvidence, ffmpeg } from '../src/server/media.js';
@@ -9,10 +9,10 @@ import { config } from '../src/server/config.js';
 import { renderClips } from '../src/server/render.js';
 import { runProcess } from '../src/server/process.js';
 import type { Transcript } from '../src/shared/types.js';
-import { JobStore, hashFile, readJson } from '../src/server/store.js';
+import { JobStore, readJson, writeJson } from '../src/server/store.js';
 import { JobManager } from '../src/server/jobs.js';
 import { createApp } from '../src/server/app.js';
-import type { Job } from '../src/shared/types.js';
+import type { Highlight, Job } from '../src/shared/types.js';
 import type { PipelineAdapters } from '../src/server/pipeline.js';
 
 test('owned generated recording: HTTP upload → analysis with explicit model doubles → five actual vertical MP4s + ZIP', { timeout: 600_000 }, async t => {
@@ -47,6 +47,22 @@ test('owned generated recording: HTTP upload → analysis with explicit model do
   const transcript = await readJson<{ segments: { start: number; end: number }[] }>(path.join(store.dir(job.id), 'transcript.json'));
   assert.ok(transcript?.segments.some(s => s.start === 240)); assert.ok(transcript?.segments.every(s => s.end <= 300));
   const calls = rankCalls; await manager.analyze(job.id); await manager.idle(); assert.equal(transcriptionCalls, 3); assert.equal(rankCalls, calls);
+  // An older ranking cache cannot restore fixed windows; speech is reused.
+  const [cacheName] = await readdir(path.join(root, 'cache')); assert.ok(cacheName);
+  const cache = path.join(root, 'cache', cacheName);
+  const ranges = path.join(cache, 'natural-ranges-v1');
+  await rename(ranges, path.join(cache, 'saved-natural-ranges'));
+  await writeJson(path.join(cache, 'ranking-0.json'), [{ id: 'legacy-fixed-window', start: 0, end: 45 }]);
+  await manager.analyze(job.id); await manager.idle();
+  assert.equal(store.get(job.id).status, 'review'); assert.equal(transcriptionCalls, 3); assert.ok(rankCalls > calls);
+  // Invalid cached model ranges are discarded and recomputed without redoing speech.
+  const rankingFile = path.join(ranges, 'ranking-0.json');
+  const saved = await readJson<Highlight[]>(rankingFile); assert.ok(saved?.length);
+  await writeJson(rankingFile, saved.map((h, i) => i === 0 ? { ...h, end: 301 } : h));
+  await manager.analyze(job.id); await manager.idle();
+  assert.equal(store.get(job.id).status, 'review'); assert.ok(store.get(job.id).warnings.some(w => /invalid cached ranking/i.test(w)));
+  await writeJson(rankingFile, saved);
+  await manager.analyze(job.id); await manager.idle(); assert.equal(store.get(job.id).status, 'review'); assert.equal(transcriptionCalls, 3);
   const edits = analyzed.highlights.map(h => ({ id: h.id, start: h.start, end: h.end }));
   const rendered = await fetch(`${base}/api/jobs/${job.id}/render`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clips: edits, options: { layout: 'blur', cropX: 0.5, subtitles: false } }) });
   assert.equal(rendered.status, 202); await manager.idle(); const completed = store.get(job.id); assert.equal(completed.status, 'complete', completed.error || '');

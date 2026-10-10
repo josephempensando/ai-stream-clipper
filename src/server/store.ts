@@ -3,10 +3,20 @@ import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { Job } from '../shared/types.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`; await writeFile(tmp, JSON.stringify(value, null, 2)); await rename(tmp, file);
+  const tmp = `${file}.tmp`; await writeFile(tmp, JSON.stringify(value, null, 2));
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(tmp, file); break; }
+    catch (error) {
+      // Windows scanners/readers can briefly lock an existing cache file.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 3 || !['EPERM', 'EBUSY', 'EACCES'].includes(code || '')) throw error;
+      await delay(50 * 2 ** attempt);
+    }
+  }
 }
 export async function readJson<T>(file: string): Promise<T | null> {
   try { return JSON.parse(await readFile(file, 'utf8')) as T; } catch { return null; }

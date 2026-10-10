@@ -25,6 +25,14 @@ test('ranking selector returns five non-overlapping windows and does not pad mis
   for (const a of result) for (const b of result) if (a !== b) assert.ok(a.end <= b.start || b.end <= a.start);
   assert.equal(selectHighlights([clips[0]!]).length, 1);
 });
+
+test('recording contexts retain scene evidence after speech ends', () => {
+  const candidates = buildCandidates([{ start: 0, end: 5, text: 'Welcome' }], [{ time: 300, loudness: -2, scene: true }], 600);
+  const late = candidates.find(c => c.start <= 300 && c.end > 300);
+  assert.ok(late);
+  assert.ok(late.evidence.some(e => /300s/.test(e)));
+  assert.ok(late.frameTimes.includes(300));
+});
 test('subtitles rebase clip times and intersect segments crossing trim boundaries', () => {
   const srt = createSrt([{ start: 28, end: 33, text: 'hello\nworld' }, { start: 58, end: 65, text: 'finish' }, { start: 70, end: 75, text: 'outside' }], 30, 60);
   assert.match(srt, /00:00:00,000 --> 00:00:03,000/);
