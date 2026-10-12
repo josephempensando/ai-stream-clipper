@@ -26,7 +26,9 @@ export interface Job {
   rights?: SourceRights;
   highlightPolicy?: 'short-form' | 'natural';
   durationMode?: 'auto';
-  clipCount?: number;
+  clipCount?: number | 'all';
+  minEngagementScore?: number;
+  selectionVersion?: 1 | 2;
 }
 export interface Vod {
   id: string; title: string; user_id: string; user_name: string; duration: string;
@@ -35,7 +37,7 @@ export interface Vod {
 export interface Health {
   ffmpeg: boolean; ffprobe: boolean; whisper: boolean; ollama: boolean;
   model: string; whisperModel: string; twitch: boolean; clipAuth: boolean;
-  editorDefaults?: { durationMode: 'auto'; clipCount: number };
+  editorDefaults?: { durationMode: 'auto'; clipCount: number | 'all'; minEngagementScore?: number };
 }
 export interface PublicClip {
   id: string; url: string; embed_url: string; broadcaster_id: string; broadcaster_name: string;

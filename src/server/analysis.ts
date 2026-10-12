@@ -1,15 +1,49 @@
 import type { Candidate, Evidence, Highlight, Segment } from '../shared/types.js';
+import { MAX_HIGHLIGHT_COUNT } from '../shared/validation.js';
 export function offsetSegments(segments: Segment[], offset: number, duration: number): Segment[] {
   return segments.map(s => ({ start: Math.max(0, s.start + offset), end: Math.min(duration, s.end + offset), text: s.text.trim() }))
     .filter(s => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start && s.text.length > 0);
 }
 const reaction = /\b(wow|what|no way|oh my|insane|wait|crazy|unbelievable|haha|laugh|clutch|let'?s go)\b|[!?]{2}/i;
-export function buildCandidates(segments: Segment[], evidence: Evidence[], duration: number): Candidate[] {
+export interface CandidateContext {
+  id: string;
+  start: number;
+  end: number;
+  cueCount: number;
+  priority?: number;
+  materialize: () => Candidate;
+}
+export function cuePriority(cues: Segment[], index: number): number {
+  // Cheap hints for shortlisting; final boundaries and quality remain model judgments.
+  return cues.slice(index, index + 6).filter(cue => reaction.test(cue.text)).length * 10;
+}
+export function shortlistContexts(contexts: CandidateContext[], budget: number): CandidateContext[] {
+  const limit = Math.max(1, Math.floor(budget));
+  if (contexts.length <= limit) return contexts;
+  const ordered = [...contexts].sort((a, b) => a.start - b.start || a.end - b.end);
+  if (limit === 1) return [ordered[0]!];
+  const selected = [ordered[0]!];
+  // Reserve both recording edges and choose one promising context per intervening region.
+  for (let bucket = 0; bucket < limit - 2; bucket++) {
+    const start = 1 + Math.floor(bucket * (ordered.length - 2) / (limit - 2));
+    const end = 1 + Math.floor((bucket + 1) * (ordered.length - 2) / (limit - 2));
+    const middle = (start + end - 1) / 2;
+    let best = start;
+    for (let i = start + 1; i < end; i++) {
+      const score = ordered[i]!.priority ?? 0; const previous = ordered[best]!.priority ?? 0;
+      if (score > previous || score === previous && Math.abs(i - middle) < Math.abs(best - middle)) best = i;
+    }
+    selected.push(ordered[best]!);
+  }
+  selected.push(ordered.at(-1)!);
+  return selected;
+}
+export function buildCandidateContexts(segments: Segment[], evidence: Evidence[], duration: number): CandidateContext[] {
   if (!Number.isFinite(duration) || duration <= 0) return [];
   const cues = segments.filter(s => Number.isFinite(s.start) && Number.isFinite(s.end) && s.start >= 0 && s.end <= duration && s.end > s.start && s.text.trim()).sort((a, b) => a.start - b.start);
   if (!cues.length && !evidence.length) return [];
   const baseline = evidence.length ? evidence.reduce((n, e) => n + e.loudness, 0) / evidence.length : -40;
-  const contexts: Candidate[] = [];
+  const contexts: CandidateContext[] = [];
   const makeContext = (id: string, start: number, end: number, speech: Segment[], eventFrames?: number[]): Candidate => {
     const signals = evidence.filter(e => e.time >= start && e.time < end);
     const loud = signals.filter(e => e.loudness > baseline + 6).length;
@@ -26,18 +60,18 @@ export function buildCandidates(segments: Segment[], evidence: Evidence[], durat
     if (!clues.length) clues.push('Context window; no strong energy signal');
     return { id, start, end, heuristicScore, evidence: clues, transcript: speech.map(s => s.text).join(' '), cues: speech, frameTimes: [...new Set(eventFrames || [start, (start + end) / 2, end - Math.min(0.1, (end - start) / 2)])] };
   };
-  // Bound text per inference, not clip duration. Overlapping reading contexts
-  // preserve complete cues and spread attention across the whole recording.
-  const starts = cues.length <= 120 ? cues.map((_, i) => i) : Array.from({ length: 120 }, (_, i) => Math.floor(i * (cues.length - 1) / 119));
-  for (const index of starts) {
-    const speech: Segment[] = []; let characters = 0;
-    for (const cue of cues.slice(index)) {
-      if (speech.length && characters + cue.text.length > 6000) break;
-      speech.push(cue); characters += cue.text.length;
+  // Bound each inference's text, while covering every cue in the recording.
+  for (let index = 0; index < cues.length; index++) {
+    let characters = 0; let last = index; let latestEnd = cues[index]!.end;
+    for (let j = index; j < cues.length; j++) {
+      const cue = cues[j]!;
+      if (j > index && characters + cue.text.length > 6000) break;
+      last = j; characters += cue.text.length; latestEnd = Math.max(latestEnd, cue.end);
     }
-    const start = speech.length ? Math.max(0, speech[0]!.start - 8) : 0;
-    const end = speech.length ? Math.min(duration, Math.max(...speech.map(s => s.end)) + 8) : duration;
-    contexts.push(makeContext(`recording-context-${index}`, start, end, speech));
+    const start = Math.max(0, cues[index]!.start - 8);
+    const end = Math.min(duration, latestEnd + 8);
+    const id = `recording-context-${index}`;
+    contexts.push({ id, start, end, cueCount: last - index + 1, priority: cuePriority(cues, index), materialize: () => makeContext(id, start, end, cues.slice(index, last + 1)) });
   }
   // Preserve non-speech gameplay and reactions outside transcript contexts.
   const uncovered = evidence.filter(e => e.time >= 0 && e.time < duration && (e.scene || e.loudness > baseline + 6) && !contexts.some(c => e.time >= c.start && e.time < c.end));
@@ -50,19 +84,23 @@ export function buildCandidates(segments: Segment[], evidence: Evidence[], durat
     const gap = gaps.get(key) || { start, end, events: [] };
     gap.events.push(event.time); gaps.set(key, gap);
   }
-  const eventContexts: Candidate[] = [];
+  const eventContexts: CandidateContext[] = [];
   for (const [key, gap] of gaps) {
     const frames = gap.events.length <= 3 ? gap.events : [gap.events[0]!, gap.events[Math.floor(gap.events.length / 2)]!, gap.events.at(-1)!];
-    eventContexts.push(makeContext(`recording-events-${key}`, gap.start, gap.end, [], frames));
+    const id = `recording-events-${key}`;
+    eventContexts.push({ id, start: gap.start, end: gap.end, cueCount: 0, priority: 20, materialize: () => makeContext(id, gap.start, gap.end, [], frames) });
   }
-  const evenly = (rows: Candidate[], count: number) => rows.length <= count ? rows : Array.from({ length: count }, (_, i) => rows[Math.floor(i * (rows.length - 1) / Math.max(1, count - 1))]!);
-  const events = evenly(eventContexts, Math.min(30, 120 - Math.min(contexts.length, 90)));
-  return [...evenly(contexts, 120 - events.length), ...events];
+  return [...contexts, ...eventContexts];
 }
-export function selectBestHighlights(highlights: Highlight[], count = 5): Highlight[] {
+export function buildCandidates(segments: Segment[], evidence: Evidence[], duration: number): Candidate[] {
+  return buildCandidateContexts(segments, evidence, duration).map(context => context.materialize());
+}
+export function selectBestHighlights(highlights: Highlight[], count: number | 'all' = MAX_HIGHLIGHT_COUNT, minEngagementScore = 0): Highlight[] {
   const selected: Highlight[] = [];
+  const limit = count === 'all' ? MAX_HIGHLIGHT_COUNT : Math.min(MAX_HIGHLIGHT_COUNT, count);
   for (const highlight of [...highlights].sort((a, b) => b.score - a.score)) {
-    if (selected.length >= count) break;
+    if (selected.length >= limit) break;
+    if (highlight.score < minEngagementScore) continue;
     if (selected.every(h => highlight.end <= h.start || highlight.start >= h.end)) selected.push(highlight);
   }
   return selected;

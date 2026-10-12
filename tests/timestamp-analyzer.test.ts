@@ -25,6 +25,17 @@ function fixture(clips: ReturnType<typeof clip>[], options: { youtubeDuration?: 
   return { analyzer: new TimestampAnalyzer(twitch, youtube, root, rank), root, queries, ranks: () => ranks };
 }
 const transcript = { name: 'owned.json', text: JSON.stringify({ segments: Array.from({ length: 60 }, (_, i) => ({ start: i * 5, end: i * 5 + 5, text: i % 6 === 0 ? 'Wait, no way! We finally won that round!' : 'Here is the setup and the payoff for the next attempt.' })) }), permission: true as const };
+test('long transcript analysis bounds model work and returns at most eight good moments', async () => {
+  const seen: number[] = [];
+  const f = fixture([], { youtubeDuration: 'PT2H', rank: async cs => cs.map(c => { seen.push(c.start); return { ...c, end: c.cues![0]!.end, score: 90, title: 'Supported moment', explanation: 'A complete reaction.' }; }) });
+  const cues = Array.from({ length: 1000 }, (_, i) => ({ start: i * 5, end: i * 5 + 5, text: 'Here is a complete thought.' }));
+  const result = await f.analyzer.analyze('https://youtu.be/abcdefghijk', { name: 'long.json', text: JSON.stringify(cues), permission: true });
+  assert.equal(seen.length, 24); assert.equal(f.ranks(), 8); assert.equal(result.highlights.length, 8);
+  assert.equal(seen[0], 0); assert.equal(seen.at(-1), 4995);
+  assert.match(result.warnings.join(' '), /shortlist/i);
+  await f.analyzer.analyze('https://youtu.be/abcdefghijk', { name: 'long.json', text: JSON.stringify(cues), permission: true });
+  assert.equal(f.ranks(), 8);
+});
 test('Twitch timestamps use clip start offsets, actual durations and non-overlapping evidence', async () => {
   const f = fixture([clip('First', 3661, 45, 5000), clip('DuplicateMoment', 3665, 30, 4000), clip('Second', 3800, 60), clip('Short', 4000, 12.5), clip('NullOffset', null, 45, 900000), clip('NoVideo', 4200, 45, 900000, ''), clip('Outside', 7190, 45)]);
   const result = await f.analyzer.analyze('https://twitch.tv/caseoh_/schedule?vodID=123');
@@ -44,11 +55,11 @@ test('Twitch metadata ranks actual intervals without a duration preference', asy
   const result = await fixture([clip('ShortPopular', 0, 20, 999999), ...Array.from({ length: 5 }, (_, i) => clip(`Long${i}`, i * 100, 45))]).analyzer.analyze('123');
   assert.equal(result.highlights.length, 5); assert.ok(result.highlights.some(h => h.id === 'ShortPopular'));
 });
-test('YouTube supplied transcript yields five supported highlights and reuses cached rankings', async () => {
+test('YouTube supplied transcript yields eight qualifying supported highlights and reuses cached rankings', async () => {
   const f = fixture([]); const result = await f.analyzer.analyze('https://youtu.be/abcdefghijk', transcript);
-  assert.equal(result.highlights.length, 5); assert.equal(result.dataSource, 'transcript'); assert.equal(result.confidence, 'transcript-supported');
+  assert.equal(result.highlights.length, 8); assert.equal(result.dataSource, 'transcript'); assert.equal(result.confidence, 'transcript-supported');
   const ordered = [...result.highlights].sort((a, b) => a.start - b.start);
-  assert.ok(ordered.every((h, i) => h.duration === 10 && h.end <= 300 && (!i || h.start >= ordered[i - 1]!.end)));
+  assert.ok(ordered.every((h, i) => h.score >= 70 && h.duration === Math.min(10, 300 - h.start) && h.end <= 300 && (!i || h.start >= ordered[i - 1]!.end)));
   const count = f.ranks(); await f.analyzer.analyze('https://youtube.com/live/abcdefghijk', transcript); assert.equal(f.ranks(), count);
 });
 
@@ -87,7 +98,8 @@ test('Ollama cannot invent cue boundaries; short transcript moments remain eligi
   const malicious = fixture([], { rank: async cs => cs.map(c => ({ ...c, start: c.start + 1, score: 90, title: 'Fake', explanation: 'Fake' })) });
   await assert.rejects(malicious.analyzer.analyze('https://youtu.be/abcdefghijk', transcript), /changed|timing|candidate/i);
   const short = { name: 'short.json', text: JSON.stringify([{ start: 0, end: 10, text: 'Only ten seconds exist.' }]), permission: true as const };
-  const f = fixture([]); const result = await f.analyzer.analyze('https://youtu.be/abcdefghijk', short); assert.equal(result.status, 'partial'); assert.equal(result.highlights[0]?.duration, 10); assert.equal(f.ranks(), 1);
+  const f = fixture([], { rank: async cs => cs.map(c => ({ ...c, score: 90, title: 'Short reaction', explanation: 'Complete standalone reaction.' })) });
+  const result = await f.analyzer.analyze('https://youtu.be/abcdefghijk', short); assert.equal(result.status, 'ready'); assert.equal(result.highlights[0]?.duration, 10); assert.equal(f.ranks(), 1);
 });
 
 test('Twitch transcript uses Ollama-selected timing and preserves long ranges through cache and seek links', async () => {

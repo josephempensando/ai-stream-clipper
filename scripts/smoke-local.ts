@@ -11,10 +11,10 @@ import { config } from '../src/server/config.js';
 import { analysisSettingsSchema } from '../src/shared/validation.js';
 
 const file = process.argv[2];
-if (!file || !process.argv.includes('--authorized')) throw new Error('Usage: npm run smoke:local -- C:\\path\\owned-recording.mp4 --authorized [--clip-count 5] [--rights path/to/rights.json]');
+if (!file || !process.argv.includes('--authorized')) throw new Error('Usage: npm run smoke:local -- C:\\path\\owned-recording.mp4 --authorized [--clip-count 8] [--rights path/to/rights.json]');
 const countIndex = process.argv.indexOf('--clip-count');
-if (countIndex !== -1 && !process.argv[countIndex + 1]) throw new Error('--clip-count requires a number.');
-const settings = analysisSettingsSchema.parse({ durationMode: 'auto', clipCount: countIndex === -1 ? config.clipCount ?? 5 : process.argv[countIndex + 1] });
+if (countIndex !== -1 && !process.argv[countIndex + 1]) throw new Error('--clip-count requires all or a positive number.');
+const settings = analysisSettingsSchema.parse({ durationMode: 'auto', clipCount: countIndex === -1 ? config.clipCount : process.argv[countIndex + 1] });
 const rightsIndex = process.argv.indexOf('--rights');
 if (rightsIndex !== -1 && !process.argv[rightsIndex + 1]) throw new Error('--rights requires a JSON file path.');
 const rights = rightsIndex === -1 ? unknownRights() : sourceRightsSchema.parse(JSON.parse(await readFile(process.argv[rightsIndex + 1]!, 'utf8')));
@@ -22,7 +22,7 @@ const state = await health(); console.log('Local engine readiness:', state);
 if (!state.ffmpeg || !state.ffprobe || !state.whisper || !state.ollama) throw new Error('Install/configure missing local engines before running the live smoke test.');
 const store = new JobStore(path.resolve('data/live-smoke')); await store.init(); const id = randomUUID();
 await mkdir(store.dir(id), { recursive: true }); await copyFile(file, store.mediaPath(id));
-const job: Job = { id, name: path.basename(file), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Ready', progress: 0, media: await probe(file), mediaHash: await hashFile(file), source: 'upload', vodId: null, vodOffset: 0, highlights: [], outputs: [], warnings: [], error: null, renderOptions: null, rights, durationMode: settings.durationMode, clipCount: settings.clipCount ?? 5 };
+const job: Job = { id, name: path.basename(file), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Ready', progress: 0, media: await probe(file), mediaHash: await hashFile(file), source: 'upload', vodId: null, vodOffset: 0, highlights: [], outputs: [], warnings: [], error: null, renderOptions: null, rights, durationMode: settings.durationMode, clipCount: settings.clipCount, minEngagementScore: config.minEngagementScore ?? 70 };
 await store.save(job); const manager = new JobManager(store);
 const progress = setInterval(() => console.log(`${job.stage}: ${Math.round(job.progress)}%`), 15_000); progress.unref();
 try {

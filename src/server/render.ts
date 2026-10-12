@@ -39,7 +39,7 @@ export async function renderClips(job: Job, source: string, dir: string, edits: 
   const exportedHighlights = edits.map(e => ({ ...highlightDetails({ ...job.highlights.find(h => h.id === e.id)!, start: e.start, end: e.end, transcript: transcript.segments.filter(s => s.end > e.start && s.start < e.end).map(s => s.text).join(' ') }), vodStart: e.start + job.vodOffset, vodEnd: e.end + job.vodOffset }));
   await writeJson(path.join(dir, 'results.json'), {
     version: 1, jobId: job.id, source: job.source, name: job.name, mediaHash: job.mediaHash,
-    vodId: job.vodId, vodOffset: job.vodOffset, durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount ?? 5,
+    vodId: job.vodId, vodOffset: job.vodOffset, durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount, minEngagementScore: job.minEngagementScore ?? config.minEngagementScore ?? 70,
     models: { whisper: transcript.model, ollama: transcript.model === 'test-double' ? 'test-double' : config.ollamaModel, vision: config.vision },
     resolution: '1080x1920', options, warnings: job.warnings, highlights: exportedHighlights, outputs,
     purpose: 'draft', rights: normalizeRights(job.rights), rightsAssessment: assessRights(job.rights), rightsSnapshotAt: new Date().toISOString(),

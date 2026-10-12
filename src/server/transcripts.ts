@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { Candidate, Segment } from '../shared/types.js';
+import type { CandidateContext } from './analysis.js';
+import { cuePriority } from './analysis.js';
 
 export const TRANSCRIPT_MAX_BYTES = 2 * 1024 ** 2;
 function time(value: string): number {
@@ -65,22 +67,26 @@ export function transcriptSupports(segments: Segment[], start: number, end: numb
   }
   return supported && cursor >= end - 0.001;
 }
-export function transcriptCandidates(segments: Segment[], duration: number): Candidate[] {
-  const candidates: Candidate[] = [];
+export function transcriptContexts(segments: Segment[], duration: number): CandidateContext[] {
+  const candidates: CandidateContext[] = [];
   // These are overlapping reading contexts, not proposed clip durations.
-  // Bound inference work; Ollama chooses a natural interval within each context.
-  const stride = Math.max(1, Math.ceil(segments.length / 200));
-  for (let i = 0; i < segments.length; i += stride) {
-    const start = segments[i]!.start; const cues: Segment[] = []; let end = start; let characters = 0;
+  // Bound each request's text, not total coverage or highlight count.
+  for (let i = 0; i < segments.length; i++) {
+    const start = segments[i]!.start; let end = start; let characters = 0; let last = i;
     for (let j = i; j < segments.length; j++) {
       const cue = segments[j]!;
-      if (cues.length && (cue.start - end > 8 || characters + cue.text.length > 6000)) break;
-      cues.push(cue); end = Math.max(end, cue.end); characters += cue.text.length;
+      if (j > i && (cue.start - end > 8 || characters + cue.text.length > 6000)) break;
+      last = j; end = Math.max(end, cue.end); characters += cue.text.length;
     }
-    if (!transcriptSupports(cues, start, end, duration)) continue;
-    candidates.push({ id: `transcript-context-${i}`, start, end, heuristicScore: 0, evidence: ['User-supplied timestamped transcript; no audio or visual analysis.'], transcript: cues.map(s => s.text).join(' '), frameTimes: [], cues });
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > duration) continue;
+    const id = `transcript-context-${i}`;
+    candidates.push({ id, start, end, cueCount: last - i + 1, priority: cuePriority(segments, i), materialize: () => {
+      const cues = segments.slice(i, last + 1);
+      return { id, start, end, heuristicScore: 0, evidence: ['User-supplied timestamped transcript; no audio or visual analysis.'], transcript: cues.map(s => s.text).join(' '), frameTimes: [], cues };
+    } });
   }
-  if (candidates.length <= 120) return candidates;
-  // Uniform timeline sampling avoids spending the entire budget near the opening.
-  return Array.from({ length: 120 }, (_, i) => candidates[Math.floor(i * candidates.length / 120)]!);
+  return candidates;
+}
+export function transcriptCandidates(segments: Segment[], duration: number): Candidate[] {
+  return transcriptContexts(segments, duration).map(context => context.materialize());
 }

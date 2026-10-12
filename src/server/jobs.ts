@@ -28,11 +28,12 @@ export class JobManager {
     if (this.reserved.size >= 20) throw new Error('Job queue is full. Wait for current work to finish.');
     this.reserved.add(job.id);
   }
-  async analyze(id: string, settings: { durationMode?: 'auto'; clipCount?: number | undefined } = {}): Promise<Job> {
+  async analyze(id: string, settings: { durationMode?: 'auto'; clipCount?: number | 'all' | undefined; minEngagementScore?: number | undefined } = {}): Promise<Job> {
     const job = this.store.get(id);
-    const options = analysisSettingsSchema.parse({ durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount ?? 5, ...settings });
+    const options = analysisSettingsSchema.parse({ durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount, minEngagementScore: job.minEngagementScore ?? config.minEngagementScore ?? 70, ...settings });
     this.reserve(job); const previous = { ...job };
-    job.durationMode = 'auto'; job.clipCount = options.clipCount ?? 5;
+    job.durationMode = 'auto'; job.clipCount = options.clipCount; job.minEngagementScore = options.minEngagementScore ?? config.minEngagementScore ?? 70;
+    job.selectionVersion = 2;
     delete job.highlightPolicy;
     job.status = 'queued'; job.error = null; job.progress = 0; job.outputs = [];
     try { await this.progress(job, 'Waiting for analysis', 0); }

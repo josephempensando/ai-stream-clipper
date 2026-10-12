@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
-export const MAX_HIGHLIGHT_COUNT = 20;
-export const analysisSettingsSchema = z.object({ durationMode: z.literal('auto').default('auto'), clipCount: z.coerce.number().int().min(1).max(MAX_HIGHLIGHT_COUNT).optional() });
+export const MAX_HIGHLIGHT_COUNT = 8;
+export const analysisSettingsSchema = z.object({
+  durationMode: z.literal('auto').default('auto'),
+  clipCount: z.union([z.literal('all').transform(() => MAX_HIGHLIGHT_COUNT), z.coerce.number().int().positive().max(MAX_HIGHLIGHT_COUNT)]).default(MAX_HIGHLIGHT_COUNT),
+  minEngagementScore: z.coerce.number().finite().min(0).max(100).optional(),
+});
 
 export function parseVodId(input: string): string {
   const value = input.trim();
@@ -17,11 +21,11 @@ export function parseVodId(input: string): string {
   return id;
 }
 export const renderSchema = z.object({
-  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive() })).min(1).max(MAX_HIGHLIGHT_COUNT),
+  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive() })).min(1),
   options: z.object({ layout: z.enum(['blur', 'crop']), cropX: z.number().min(0).max(1), subtitles: z.boolean() }),
 });
 export function validateEdits(clips: { id: string; start: number; end: number }[], duration: number): void {
-  if (!clips.length || clips.length > MAX_HIGHLIGHT_COUNT || !Number.isFinite(duration) || duration <= 0) throw new Error(`Select one to ${MAX_HIGHLIGHT_COUNT} clips.`);
+  if (!clips.length || !Number.isFinite(duration) || duration <= 0) throw new Error('Select at least one clip from a valid recording.');
   const ids = new Set<string>();
   const ordered = [...clips].sort((a, b) => a.start - b.start);
   for (const [index, clip] of ordered.entries()) {

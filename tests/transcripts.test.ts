@@ -14,10 +14,10 @@ test('timestamped JSON/TXT are supported and invalid/out-of-video timings fail',
   for (const content of ['1\n00:61:00,000 --> 00:62:00,000\nBad', '1\n00:00:20,000 --> 00:00:10,000\nBad', '1\n00:00:00,000 --> 00:01:01,000\nOutside']) assert.throws(() => parseTranscript('bad.srt', content, 60));
   assert.throws(() => parseTranscript('bad.txt', 'An untimed paragraph', 60));
 });
-test('transcript candidates stay within supported cue windows, never fill long gaps and can supply five', () => {
+test('transcript candidates stay within supported cue windows, never fill long gaps and cover every cue', () => {
   const segments = Array.from({ length: 60 }, (_, i) => ({ start: i * 5, end: i * 5 + 5, text: i % 6 === 0 ? 'Wait, no way! A funny surprise!' : 'This is the setup and the payoff for our round.' }));
   const windows = transcriptCandidates(segments, 300);
-  assert.ok(windows.length >= 5); assert.ok(windows.length <= 120);
+  assert.equal(windows.length, segments.length);
   assert.ok(windows.every(c => transcriptSupports(segments, c.start, c.end, 300)));
   assert.ok(windows.some(c => c.end - c.start > 60));
   assert.equal(transcriptSupports([{ start: 0, end: 10, text: 'one' }, { start: 40, end: 60, text: 'two' }], 0, 60, 60), false);

@@ -1,6 +1,12 @@
 import type { Candidate, Highlight } from '../shared/types.js';
 import { OllamaRankingError, validateNaturalRankings, validateAutoRankings } from './models.js';
 
+// Source evidence is restored from the original candidate during validation.
+// Store decisions rather than copying overlapping transcript contexts to disk.
+export function rankingDecisions(rows: Highlight[]) {
+  return rows.map(({ id, start, end, score, title, explanation, description }) => ({ id, start, end, score, title, explanation, ...(description ? { description } : {}) }));
+}
+
 export function validateCachedRankings(rows: Highlight[], candidates: Candidate[], transcriptOnly = false, auto = false): Highlight[] {
   if (!Array.isArray(rows)) throw new Error('Invalid ranking cache.');
   const supplied = candidates.filter(c => rows.some(row => row?.id === c.id));

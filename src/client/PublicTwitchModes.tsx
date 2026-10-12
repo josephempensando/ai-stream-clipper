@@ -77,7 +77,7 @@ export default function PublicTwitchModes({ mode, onRecording }: Props) {
         <section className="panel source-panel"><div className="panel-title"><Tv size={19} /><h2>Discover public VOD clips</h2><span className="panel-meta">PUBLIC METADATA</span></div>
           <div className="input-area"><label htmlFor="public-vod-url">Public Twitch VOD URL or ID</label><input id="public-vod-url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://www.twitch.tv/videos/…" />
             <button className="button primary full" disabled={!!busy || wait > 0} onClick={discover}><Clapperboard size={17} />Discover clips<ArrowRight size={16} /></button>
-            <small>Find up to five existing 30–60 second clips linked to this VOD.</small>
+            <small>Find all matching existing 30–60 second clips within the VOD search results.</small>
             {discovery && <div className="vod-details"><strong>{discovery.vod.title}</strong><small>{discovery.vod.user_name} · {discovery.vod.duration} · {discovery.vod.view_count.toLocaleString()} VOD views</small></div>}
             <div className="notice"><ShieldCheck size={18} /><span>Ranked using public views and titles. No video/audio AI analysis or clip downloading. Watch and share through Twitch.</span></div>
             <button className="text-button" onClick={onRecording}>Analyze a recording you have permission to use<ArrowRight size={14} /></button>

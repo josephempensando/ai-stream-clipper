@@ -31,8 +31,12 @@ try {
   assert.match(await page.locator('.recipe-grid:visible').innerText(), /AI chosen/);
   assert.doesNotMatch(await page.locator('.analysis-panel:visible').innerText(), /30–60/);
   assert.equal(await page.getByLabel('Duration mode', { exact: true }).inputValue(), 'auto');
-  await page.getByLabel('Number of highlights', { exact: true }).fill('7');
-  assert.match(await page.locator('.recipe-grid:visible').innerText(), /Up to 7/);
+  assert.match(await page.locator('.recipe-grid:visible').innerText(), /Up to 8/);
+  assert.equal(await page.getByLabel('Maximum highlights', { exact: true }).inputValue(), '8');
+  await page.getByLabel('Maximum highlights', { exact: true }).selectOption('5');
+  assert.match(await page.locator('.recipe-grid:visible').innerText(), /Up to 5/);
+  assert.equal(await page.getByLabel('Number of highlights', { exact: true }).count(), 0);
+  await page.getByLabel('Minimum engagement score', { exact: true }).fill('75');
   await page.getByLabel('License category', { exact: true }).selectOption('creative-commons');
   await page.getByLabel('Creative Commons license', { exact: true }).selectOption('CC BY-NC-SA 4.0');
   assert.match(await page.getByRole('region', { name: 'Source rights' }).innerText(), /NonCommercial/);
@@ -63,7 +67,7 @@ try {
   ], outputs: [], warnings: [], error: null, renderOptions: null, durationMode: 'auto', clipCount: 2, rights: { ...unknownRights(), expiresAt: '2030-01-01T12:00:00+08:00' } };
   let submitted: ClipEdit[] | undefined;
   let analysisSettings: unknown;
-  await review.route('**/api/health', route => route.fulfill({ json: { ffmpeg: true, ffprobe: true, whisper: true, ollama: true, model: 'test-double', whisperModel: 'test-double', twitch: false, clipAuth: false, editorDefaults: { durationMode: 'auto', clipCount: 5 } } }));
+  await review.route('**/api/health', route => route.fulfill({ json: { ffmpeg: true, ffprobe: true, whisper: true, ollama: true, model: 'test-double', whisperModel: 'test-double', twitch: false, clipAuth: false, editorDefaults: { durationMode: 'auto', clipCount: 8, minEngagementScore: 70 } } }));
   await review.route('**/api/jobs', route => route.fulfill({ json: [fixture] }));
   await review.route('**/api/jobs/range-review/media', route => route.fulfill({ status: 204 }));
   await review.route('**/api/jobs/range-review/render', async route => {
@@ -72,7 +76,7 @@ try {
   });
   await review.route('**/api/jobs/range-review/analyze', async route => {
     analysisSettings = route.request().postDataJSON();
-    await route.fulfill({ json: { ...fixture, clipCount: 7 } });
+    await route.fulfill({ json: { ...fixture, clipCount: 6, minEngagementScore: 75 } });
   });
   await review.goto(external || `http://127.0.0.1:${config.port}`);
   await review.getByRole('button', { name: 'Recordings', exact: false }).click();
@@ -81,12 +85,13 @@ try {
   assert.equal(await review.getByLabel('End for Short reaction', { exact: true }).inputValue(), '12');
   assert.equal(await review.getByLabel('End for Short reaction', { exact: true }).getAttribute('min'), '0');
   assert.equal(await review.getByLabel('End for Long story', { exact: true }).inputValue(), '390');
-  assert.equal(await review.getByLabel('Number of highlights', { exact: true }).inputValue(), '2');
-  await review.getByLabel('Number of highlights', { exact: true }).fill('7');
+  assert.equal(await review.getByLabel('Minimum engagement score', { exact: true }).inputValue(), '70');
+  await review.getByLabel('Minimum engagement score', { exact: true }).fill('75');
+  await review.getByLabel('Maximum highlights', { exact: true }).selectOption('6');
   const analyzeRequest = review.waitForRequest('**/api/jobs/range-review/analyze');
   await review.getByRole('button', { name: 'Analyze again', exact: true }).click(); await analyzeRequest;
   await review.getByRole('button', { name: 'Analyze again', exact: true }).waitFor();
-  assert.deepEqual(analysisSettings, { durationMode: 'auto', clipCount: 7 });
+  assert.deepEqual(analysisSettings, { durationMode: 'auto', clipCount: 6, minEngagementScore: 75 });
   await review.getByLabel('End for Short reaction', { exact: true }).fill('15');
   await review.getByText('15.0s', { exact: true }).waitFor();
   const request = review.waitForRequest('**/api/jobs/range-review/render');

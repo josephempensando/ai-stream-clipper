@@ -26,7 +26,7 @@ test('public discovery paginates, deduplicates and filters exact VOD and 30–60
 test('discovery respects ten-page limit and reports incomplete search', async () => {
   let pages = 0;
   const result = await publicClient(() => Response.json({ data: [clipFixture(`Clip${++pages}`)], pagination: { cursor: String(pages) } })).discover('123');
-  assert.equal(pages, 10); assert.equal(result.clips.length, 5); assert.equal(result.truncated, true);
+  assert.equal(pages, 10); assert.equal(result.clips.length, 10); assert.equal(result.truncated, true);
 });
 test('discovery handles zero matching clips and repeated cursors without inventing results', async () => {
   const result = await publicClient(() => Response.json({ data: [clipFixture('Other', { video_id: '999' })], pagination: { cursor: 'same' } })).discover('123');

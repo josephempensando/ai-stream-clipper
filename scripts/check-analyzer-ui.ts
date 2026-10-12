@@ -9,7 +9,7 @@ try {
   const page = await context.newPage(); page.setDefaultTimeout(7000); const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   let youtube = false; let hasTranscript = false; let requests = 0;
   const source = () => ({ platform: youtube ? 'youtube' : 'twitch', id: youtube ? 'abcdefghijk' : '123', url: youtube ? 'https://www.youtube.com/watch?v=abcdefghijk' : 'https://www.twitch.tv/videos/123', title: youtube ? 'Transcript test stream' : 'Twitch test stream', creator: 'Creator', duration: 7200, viewCount: 100, thumbnailUrl: '', isLive: false, embedAllowed: true });
-  const highlights = () => Array.from({ length: youtube ? 5 : 2 }, (_, i) => {
+  const highlights = () => Array.from({ length: youtube ? 8 : 2 }, (_, i) => {
     const start = 3661 + i * 100; const duration = i === 1 ? 12.5 : youtube && i === 0 ? 85 : 45; const end = start + duration;
     return { id: `moment${i}`, start, end, startTime: formatTimestamp(start), endTime: formatTimestamp(end), duration, title: i ? !youtube ? 'Shorter reaction' : `Transcript moment ${i}` : 'Moment One', description: youtube ? 'Setup and payoff in the supplied transcript.' : 'Popularity and reaction title; no audiovisual analysis.', score: 70, viewCount: youtube ? null : 1234, clipUrl: youtube ? null : 'https://clips.twitch.tv/Example', originalUrl: timestampLink(youtube ? 'youtube' : 'twitch', youtube ? 'abcdefghijk' : '123', start), dataSource: youtube ? 'transcript' : 'existing-clips', confidence: youtube ? 'transcript-supported' : 'metadata-only', transcript: youtube ? 'No way! We won the round.' : null };
   });
@@ -20,6 +20,7 @@ try {
   });
   await page.goto(url); await page.getByLabel('Source URL', { exact: true }).fill('https://twitch.tv/caseoh_/schedule?vodID=123');
   await page.getByText('AI chosen', { exact: true }).waitFor();
+  await page.getByText('Up to 8', { exact: true }).waitFor();
   assert.equal(await page.getByText('30–60', { exact: true }).count(), 0);
   assert.equal(await page.getByLabel('Attach transcript', { exact: true }).count(), 1);
   await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByRole('heading', { name: 'Moment One', exact: true }).waitFor();
@@ -35,7 +36,8 @@ try {
   await page.screenshot({ path: 'test-artifacts/timestamp-analyzer-desktop.png', fullPage: true });
   youtube = true; await page.getByLabel('Source URL', { exact: true }).fill('https://youtu.be/abcdefghijk'); await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByRole('heading', { name: 'Highlights unavailable', exact: true }).waitFor();
   await page.getByLabel('Attach transcript', { exact: true }).setInputFiles({ name: 'owned.srt', mimeType: 'text/plain', buffer: Buffer.from('1\n00:00:00,000 --> 00:00:45,000\nOwned synthetic transcript.') });
-  await page.getByLabel('I have permission to process this transcript.', { exact: true }).check(); await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByText('5 highlights found', { exact: true }).waitFor();
+  await page.getByLabel('I have permission to process this transcript.', { exact: true }).check(); await page.getByRole('button', { name: 'Analyze Highlights', exact: true }).click(); await page.getByText('8 highlights found', { exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Transcript moment 7', exact: true }).waitFor();
   await page.getByText('85s', { exact: true }).waitFor(); await page.getByText('12.5s', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Copy timestamp for Moment One', exact: true }).click(); assert.match(await page.evaluate(() => navigator.clipboard.readText()), /01:01:01.*01:02:26/);
   await page.getByRole('button', { name: 'Preview Moment One', exact: true }).click(); assert.ok((await page.locator('iframe[title="Original livestream preview"]').getAttribute('src'))?.includes('/embed/abcdefghijk?start=3661'));

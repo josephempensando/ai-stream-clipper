@@ -23,7 +23,7 @@ test('analyzer API returns honest YouTube unavailable state without a transcript
   assert.equal(response.status, 200); const data = await response.json() as { status: string; highlights: unknown[] };
   assert.equal(data.status, 'unavailable'); assert.deepEqual(data.highlights, []); assert.ok(!JSON.stringify(data).includes('server-only-secret')); assert.equal(f.store.jobs.size, 0);
 });
-test('permitted multipart transcript returns five timestamps, no MP4 exports or media jobs', async t => {
+test('permitted multipart transcript returns eight qualifying timestamps, no MP4 exports or media jobs', async t => {
   const f = await apiFixture(t);
   const form = (permission: string) => {
     const body = new FormData(); body.append('input', 'https://www.youtube.com/live/abcdefghijk'); body.append('permission', permission);
@@ -32,7 +32,7 @@ test('permitted multipart transcript returns five timestamps, no MP4 exports or 
   assert.equal((await fetch(`${f.base}/analyze`, { method: 'POST', body: form('false') })).status, 400);
   const response = await fetch(`${f.base}/analyze`, { method: 'POST', body: form('true') }); assert.equal(response.status, 200);
   const data = await response.json() as { highlights: { startTime: string; endTime: string; originalUrl: string }[]; dataSource: string };
-  assert.equal(data.highlights.length, 5); assert.equal(data.dataSource, 'transcript'); assert.ok(data.highlights.every(h => h.startTime && h.endTime && h.originalUrl.startsWith('https://www.youtube.com/watch?'))); assert.equal(f.store.jobs.size, 0);
+  assert.equal(data.highlights.length, 8); assert.equal(data.dataSource, 'transcript'); assert.ok(data.highlights.every(h => h.startTime && h.endTime && h.originalUrl.startsWith('https://www.youtube.com/watch?'))); assert.equal(f.store.jobs.size, 0);
 });
 test('analyzer rejects hostile URLs, untimed files, oversized attachments and foreign origins', async t => {
   const f = await apiFixture(t);

@@ -50,7 +50,7 @@ export class TwitchClient {
       cursors.add(cursor);
     } while (cursor);
     const eligible = [...clips.values()].filter(c => c.duration >= 30 && c.duration <= 60);
-    const selected = rankPublicClips(eligible).slice(0, 5);
+    const selected = rankPublicClips(eligible);
     return { vod, clips: selected, scanned, pages, matched: clips.size, eligible: eligible.length, truncated, analysis: 'public-metadata',
       message: `${selected.length} eligible clip${selected.length === 1 ? '' : 's'} selected from ${eligible.length} found for this VOD. Public metadata ranking only; no video/audio AI analysis. ${truncated ? 'Search stopped at the pagination limit or a repeated cursor; more clips may exist.' : 'Search completed within Twitch’s available pagination.'} Clips without a video_id cannot be matched.` };
   }

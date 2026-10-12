@@ -20,26 +20,26 @@ test('owned generated recording: HTTP upload → analysis with explicit model do
   const chunkSeconds = config.chunkSeconds; config.chunkSeconds = 120; t.after(() => { config.chunkSeconds = chunkSeconds; });
   const recording = path.join(root, 'owned-synthetic.mp4'); await createDemo(recording, 300);
   const info = await probe(recording); assert.ok(info.hasAudio); assert.ok(Math.abs(info.duration - 300) < 1);
-  let transcriptionCalls = 0; let rankCalls = 0;
+  let transcriptionCalls = 0; let rankCalls = 0; let singleMoments = false;
   // These are explicitly test-only doubles, not a claim that Whisper/Ollama ran.
   const adapters: PipelineAdapters = {
     transcribe: async () => { transcriptionCalls++; return Array.from({ length: 24 }, (_, i) => ({ start: i * 5, end: i * 5 + 5, text: i % 4 === 0 ? 'Wait! No way! What a surprising clutch!' : 'We are setting up the next round.' })); },
     rank: async candidates => { rankCalls++; return candidates.map(c => {
       const start = c.cues![0]!.start;
-      return { ...c, start, end: Math.min(c.cues!.at(-1)!.end, start + (start === 100 ? 145 : 15)), score: start === 0 ? 99 : start === 100 ? 95 : 70, title: `TEST DOUBLE: moment ${start}`, explanation: 'Fixture ranking for generated owned media; no real model inference.' };
+      return { ...c, start, end: singleMoments ? c.cues![0]!.end : Math.min(c.cues!.at(-1)!.end, start + (start === 100 ? 145 : 15)), score: start === 0 ? 99 : start === 100 ? 95 : 70, title: `TEST DOUBLE: moment ${start}`, explanation: 'Fixture ranking for generated owned media; no real model inference.' };
     }); },
   };
   const store = new JobStore(root); const manager = new JobManager(store, adapters); const { app } = await createApp(root, manager);
   const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
   const address = server.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
-  const makeForm = (permission: string) => { const f = new FormData(); f.append('permission', permission); f.append('highlightPolicy', 'natural'); f.append('vodOffset', '600'); f.append('media', new Blob([fileBytes], { type: 'video/mp4' }), 'owned.mp4'); return f; };
+  const makeForm = (permission: string) => { const f = new FormData(); f.append('permission', permission); f.append('clipCount', '5'); f.append('vodOffset', '600'); f.append('media', new Blob([fileBytes], { type: 'video/mp4' }), 'owned.mp4'); return f; };
   const fileBytes = await readFile(recording);
   const denied = await fetch(`${base}/api/jobs/upload`, { method: 'POST', body: makeForm('false') }); assert.equal(denied.status, 400);
   const uploaded = await fetch(`${base}/api/jobs/upload`, { method: 'POST', body: makeForm('true') }); assert.equal(uploaded.status, 201);
   const job = await uploaded.json() as Job;
   assert.equal(job.vodOffset, 600); assert.equal(job.source, 'upload');
-  assert.equal((await fetch(`${base}/api/jobs/${job.id}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 202);
+  assert.equal((await fetch(`${base}/api/jobs/${job.id}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"clipCount":5}' })).status, 202);
   await manager.idle(); const analyzed = store.get(job.id); assert.equal(analyzed.status, 'review', analyzed.error || '');
   assert.equal(analyzed.highlights.length, 5); assert.equal(transcriptionCalls, 3); assert.ok(rankCalls > 0);
   assert.ok(analyzed.highlights.some(h => h.end - h.start === 15));
@@ -55,7 +55,7 @@ test('owned generated recording: HTTP upload → analysis with explicit model do
   // An older ranking cache cannot restore fixed windows; speech is reused.
   const [cacheName] = await readdir(path.join(root, 'cache')); assert.ok(cacheName);
   const cache = path.join(root, 'cache', cacheName);
-  const ranges = path.join(cache, `auto-ranges-v3-silence-${config.maxHighlightSilenceSeconds}`);
+  const ranges = path.join(cache, `shortlist-v1-budget-${config.highlightContextBudget}-silence-${config.maxHighlightSilenceSeconds}`);
   await rename(ranges, path.join(cache, 'saved-natural-ranges'));
   await writeJson(path.join(cache, 'ranking-0.json'), [{ id: 'legacy-fixed-window', start: 0, end: 45 }]);
   await manager.analyze(job.id); await manager.idle();
@@ -94,6 +94,15 @@ test('owned generated recording: HTTP upload → analysis with explicit model do
   await renderClips(completed, store.mediaPath(job.id), cropDir, [edits[0]!], { layout: 'crop', cropX: 0.25, subtitles: true }, fullTranscript, async () => {});
   assert.match(await readFile(path.join(cropDir, 'clip-01.srt'), 'utf8'), /00:00:/);
   const cropped = await probe(path.join(cropDir, 'clip-01.mp4')); assert.equal(cropped.width, 1080); assert.equal(cropped.height, 1920);
+  // Legacy All requests now use the eight-clip cap and a bounded shortlist.
+  await rename(ranges, path.join(cache, 'saved-multi-sentence-ranges')); singleMoments = true;
+  const allResponse = await fetch(`${base}/api/jobs/${job.id}/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clipCount: 'all', minEngagementScore: 70 }) });
+  assert.equal(allResponse.status, 202); await manager.idle();
+  assert.equal(store.get(job.id).status, 'review', store.get(job.id).error || '');
+  assert.equal(store.get(job.id).highlights.length, 8); assert.equal(transcriptionCalls, 3);
+  const allCalls = rankCalls;
+  await manager.analyze(job.id, { clipCount: 'all', minEngagementScore: 90 }); await manager.idle();
+  assert.equal(store.get(job.id).highlights.length, 2); assert.equal(rankCalls, allCalls); assert.equal(transcriptionCalls, 3);
   console.log(`Actual media validation artifacts: ${root}. Whisper and Ollama used test-only doubles.`);
 });
 test('48 kHz recording preserves short energy spikes in per-second evidence', { timeout: 30_000 }, async () => {

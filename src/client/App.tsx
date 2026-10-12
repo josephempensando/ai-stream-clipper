@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, ArrowDownToLine, ArrowRight, Check, ChevronRight, CircleHelp, Clapperboard, Clock3, Code2, Crop, FileVideo, FolderOpen, Layers3, LoaderCircle, MonitorPlay, Play, Plus, Scissors, Settings2, ShieldCheck, Sparkles, Subtitles, Tv as Twitch, Upload, X } from 'lucide-react';
 import type { ClipEdit, Health, Job, RenderOptions, Vod } from '../shared/types.js';
-import { parseVodId, validateEdits, MAX_HIGHLIGHT_COUNT } from '../shared/validation.js';
+import { MAX_HIGHLIGHT_COUNT, parseVodId, validateEdits } from '../shared/validation.js';
 import { api, uploadRecording } from './api.js';
 import PublicTwitchModes from './PublicTwitchModes.js';
 import LivestreamAnalyzer from './LivestreamAnalyzer.js';
@@ -24,8 +24,10 @@ export default function App() {
   const [permission, setPermission] = useState(false); const [offset, setOffset] = useState(0);
   const [rights, setRights] = useState<SourceRights>(unknownRights);
   const durationMode = 'auto';
-  const [requestedCount, setRequestedCount] = useState<number | null>(null);
-  const clipCount = requestedCount ?? health?.editorDefaults?.clipCount ?? 5;
+  const [highlightLimit, setHighlightLimit] = useState<number | null>(null);
+  const clipCount = Math.max(5, Math.min(MAX_HIGHLIGHT_COUNT, highlightLimit ?? (typeof health?.editorDefaults?.clipCount === 'number' ? health.editorDefaults.clipCount : MAX_HIGHLIGHT_COUNT)));
+  const [qualityScore, setQualityScore] = useState<number | null>(null);
+  const minEngagementScore = qualityScore ?? health?.editorDefaults?.minEngagementScore ?? 70;
   const [busy, setBusy] = useState(''); const [uploadPercent, setUploadPercent] = useState(0); const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]); const [edits, setEdits] = useState<Record<string, ClipEdit>>({});
   const [options, setOptions] = useState<RenderOptions>({ layout: 'blur', cropX: 0.5, subtitles: false });
@@ -40,7 +42,7 @@ export default function App() {
   const loadHealth = useCallback(async () => { try { setHealth(await api<Health>('/health')); } catch (e) { setError(String(e)); } }, []);
   const loadJobs = useCallback(async () => { try { setJobs(await api<Job[]>('/jobs')); } catch { /* initial diagnostics surface server errors */ } }, []);
   useEffect(() => { void loadHealth(); void loadJobs(); }, [loadHealth, loadJobs]);
-  useEffect(() => { setRights(normalizeRights(job?.rights)); if (job) setRequestedCount(job.clipCount ?? 5); }, [job?.id]);
+  useEffect(() => { setRights(normalizeRights(job?.rights)); if (job) { setQualityScore(job.minEngagementScore ?? 70); setHighlightLimit(typeof job.clipCount === 'number' ? job.clipCount : MAX_HIGHLIGHT_COUNT); } }, [job?.id]);
   useEffect(() => {
     if (!job || !processing) return;
     let active = true;
@@ -64,11 +66,12 @@ export default function App() {
     if (!permission) throw new Error('Confirm permission to process this recording.');
     const record = sourceRightsSchema.parse(rights);
     if (mode === 'remote') {
-      setJob(await api<Job>('/jobs/import', { url: remote, permission, vodId: vod?.id || '', vodOffset: offset, rights: record, durationMode, clipCount }));
+      setJob(await api<Job>('/jobs/import', { url: remote, permission, vodId: vod?.id || '', vodOffset: offset, rights: record, durationMode, clipCount, minEngagementScore }));
     } else {
       if (!file) throw new Error('Choose an MP4 recording first.');
       const form = new FormData(); form.append('permission', 'true'); form.append('vodId', vod?.id || ''); form.append('vodOffset', String(offset)); form.append('media', file);
       form.append('rights', JSON.stringify(record)); form.append('durationMode', durationMode); form.append('clipCount', String(clipCount));
+      form.append('minEngagementScore', String(minEngagementScore));
       setUploadPercent(0); setJob(await uploadRecording(form, setUploadPercent));
     }
     setPreview(null); setSelected([]); setView('workbench'); await loadJobs();
@@ -78,7 +81,7 @@ export default function App() {
     const saved = await api<{ rights: SourceRights }>(`/jobs/${job.id}/rights`, sourceRightsSchema.parse(rights), 'PUT');
     setRights(saved.rights); setJob({ ...job, rights: saved.rights }); await loadJobs();
   });
-  const analyze = () => void attempt('Starting analysis', async () => { if (job) setJob(await api<Job>(`/jobs/${job.id}/analyze`, { durationMode, clipCount })); });
+  const analyze = () => void attempt('Starting analysis', async () => { if (job) setJob(await api<Job>(`/jobs/${job.id}/analyze`, { durationMode, clipCount, minEngagementScore })); });
   const render = () => void attempt('Starting export', async () => {
     if (!job) return; const clips = selected.map(id => edits[id]!); validateEdits(clips, job.media.duration);
     setJob(await api<Job>(`/jobs/${job.id}/render`, { clips, options }));
@@ -86,7 +89,7 @@ export default function App() {
   const playHighlight = (edit: ClipEdit) => {
     setPreview(edit); if (video.current) { video.current.currentTime = edit.start; void video.current.play().catch(() => {}); }
   };
-  const newProject = () => { setJob(null); setFile(null); setVod(null); setEmbedId(null); setClip(null); setError(''); setPreview(null); setPermission(false); setRights(unknownRights()); setRequestedCount(null); setView('workbench'); };
+  const newProject = () => { setJob(null); setFile(null); setVod(null); setEmbedId(null); setClip(null); setError(''); setPreview(null); setPermission(false); setRights(unknownRights()); setQualityScore(null); setHighlightLimit(null); setView('workbench'); };
   const selectJob = (recording: Job) => { setJob(recording); setPreview(null); setView('workbench'); setWorkflowMode('authorized'); setError(''); };
   const createClip = () => void attempt('Creating authorized Twitch clip', async () => {
     if (!permission || !vod) throw new Error('Confirm broadcaster/editor authorization and look up the VOD first.');
@@ -142,9 +145,11 @@ export default function App() {
                 : <div className={`dropzone ${drag ? 'dragging' : ''}`} onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); if (!processing && !busy) setFile(e.dataTransfer.files[0] || null); }}><div className="upload-icon"><Upload size={23} /></div><h3>{file ? file.name : 'Drop your recording here'}</h3><p>{file ? `${(file.size / 1024 ** 2).toFixed(1)} MB · Ready to upload` : 'Your stream recording, ready for its next chapter.'}</p><button className="button secondary small" onClick={() => fileInput.current?.click()} disabled={processing || !!busy}><FolderOpen size={14} />{file ? 'Choose another file' : 'Browse files'}</button><small>MP4 · Up to 20 GB by default</small><input ref={fileInput} aria-label="Choose MP4 recording" type="file" accept="video/mp4,.mp4" hidden onChange={e => setFile(e.target.files?.[0] || null)} /></div>}
                 <div className="source-footer"><label className="checkbox"><input type="checkbox" checked={permission} onChange={e => setPermission(e.target.checked)} /><span>{mode === 'twitch' ? 'I am the broadcaster or an authorized channel editor.' : 'I may process this recording privately. This does not establish publishing rights.'}</span></label>{mode !== 'twitch' && <><label className="offset-label" htmlFor="offset">Recording starts at VOD second <input id="offset" type="number" min="0" value={offset} onChange={e => setOffset(Number(e.target.value))} /></label><button className="button secondary full" disabled={!permission || (mode === 'upload' ? !file : !remote) || processing || !!busy} onClick={ingest}>{busy === 'Uploading recording' ? <LoaderCircle size={16} className="spin" /> : <Upload size={16} />}{busy === 'Uploading recording' ? `Uploading ${uploadPercent}% · validating media` : 'Upload recording'}</button></>}</div>
               </section>
-              <section className="panel analysis-panel"><div className="panel-title"><span className="step-icon violet"><Sparkles size={18} /></span><h2>Highlight recipe</h2><span className="panel-meta">02 / ANALYZE</span></div><div className="recipe-grid"><div><span>CLIPS</span><strong>Up to {clipCount} <small>best moments</small></strong></div><div><span>DURATION</span><strong>AI chosen<small>natural boundaries</small></strong></div><div><span>FORMAT</span><strong>9:16 <small>vertical</small></strong></div></div>
+              <section className="panel analysis-panel"><div className="panel-title"><span className="step-icon violet"><Sparkles size={18} /></span><h2>Highlight recipe</h2><span className="panel-meta">02 / ANALYZE</span></div><div className="recipe-grid"><div><span>CLIPS</span><strong>Up to {clipCount}<small>best moments</small></strong></div><div><span>DURATION</span><strong>AI chosen<small>natural boundaries</small></strong></div><div><span>FORMAT</span><strong>9:16 <small>vertical</small></strong></div></div>
                 <label className="policy-control">Duration mode<select aria-label="Duration mode" value={durationMode} disabled><option value="auto">Auto · AI determines each clip duration</option></select></label>
-                <label className="policy-control">Number of highlights<input aria-label="Number of highlights" type="number" min="1" max={MAX_HIGHLIGHT_COUNT} step="1" value={clipCount} disabled={processing || !!busy} onChange={e => setRequestedCount(Math.max(1, Math.min(MAX_HIGHLIGHT_COUNT, Math.round(Number(e.target.value) || 1))))} /></label>
+                <label className="policy-control">Maximum highlights<select aria-label="Maximum highlights" value={clipCount} disabled={processing || !!busy} onChange={e => setHighlightLimit(Number(e.target.value))}>{[5, 6, 7, 8].map(count => <option key={count} value={count}>{count} best moments</option>)}</select></label>
+                <label className="policy-control">Minimum engagement score<input aria-label="Minimum engagement score" type="number" min="0" max="100" step="1" value={minEngagementScore} disabled={processing || !!busy} onChange={e => setQualityScore(Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))))} /></label>
+                <small className="engine-hint">Shortlist promising moments for faster analysis, then keep up to {clipCount} that meet this score. Fewer are returned when evidence is weak. Preview the results.</small>
                 <div className="content-tag"><Activity size={14} />Hook · story · emotional impact<span>Standalone coherence</span></div><button className="button primary full analyze-button" onClick={analyze} disabled={!job || !enginesReady || processing || !!busy}><Sparkles size={18} />{processing && job.status !== 'rendering' ? 'Finding your highlights…' : job?.highlights.length ? 'Analyze again' : 'Analyze stream'}<ArrowRight size={17} /></button><div className="engine-status"><span className={health?.whisper ? 'green-dot' : 'amber-dot'} />Whisper<span className={health?.ollama ? 'green-dot' : 'amber-dot'} />Ollama<span className={health?.ffmpeg && health.ffprobe ? 'green-dot' : 'amber-dot'} />FFmpeg<button onClick={() => { setView('setup'); void loadHealth(); }}>Manage<ChevronRight size={12} /></button></div>{!enginesReady && <small className="engine-hint">{health ? 'Install missing local engines to enable analysis.' : 'Checking local engines…'}</small>}</section>
               <SourceRightsEditor rights={rights} onChange={setRights} disabled={processing || !!busy} dirty={JSON.stringify(rights) !== JSON.stringify(normalizeRights(job?.rights))} {...(job ? { onSave: saveRights } : {})} />
             </div>

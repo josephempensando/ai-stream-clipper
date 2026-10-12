@@ -47,8 +47,12 @@ export class JobStore {
       if (!job) continue;
       job.rights = normalizeRights(job.rights);
       job.durationMode = 'auto';
-      const settings = analysisSettingsSchema.safeParse({ clipCount: job.clipCount ?? config.clipCount ?? 5 });
-      job.clipCount = settings.success ? settings.data.clipCount ?? 5 : config.clipCount ?? 5;
+      // Retire unlimited jobs while preserving valid saved numeric preferences.
+      const count = analysisSettingsSchema.shape.clipCount.safeParse(job.clipCount ?? config.clipCount);
+      const quality = analysisSettingsSchema.shape.minEngagementScore.safeParse(job.minEngagementScore ?? config.minEngagementScore ?? 70);
+      job.clipCount = count.success ? count.data : config.clipCount;
+      job.selectionVersion = 2;
+      job.minEngagementScore = quality.success ? quality.data ?? 70 : config.minEngagementScore ?? 70;
       delete job.highlightPolicy;
       job.highlights = job.highlights.map(highlightDetails);
       this.jobs.set(id, job);

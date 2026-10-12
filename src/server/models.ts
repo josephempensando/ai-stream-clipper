@@ -51,7 +51,8 @@ export function validateNaturalRankings(raw: unknown, candidates: Candidate[], t
     const row = ranges.rankings[i]!; const cues = highlight.cues || [];
     if (row.start < highlight.start || row.end > highlight.end || row.end <= row.start) throw new Error('Ollama returned a range outside its recording context. Retry analysis.');
     if (transcriptOnly && !transcriptSupports(cues, row.start, row.end, highlight.end, config.maxHighlightSilenceSeconds)) throw new Error('Ollama returned unsupported transcript timing. Retry analysis.');
-    return highlightDetails({ ...highlight, ...(row.description ? { description: row.description } : {}), start: row.start, end: row.end, transcript: cues.filter(s => s.end > row.start && s.start < row.end).map(s => s.text).join(' '), frameTimes: highlight.frameTimes.filter(time => time >= row.start && time < row.end) });
+    const selectedCues = cues.filter(s => s.end > row.start && s.start < row.end);
+    return highlightDetails({ ...highlight, ...(row.description ? { description: row.description } : {}), start: row.start, end: row.end, cues: selectedCues, transcript: selectedCues.map(s => s.text).join(' '), frameTimes: highlight.frameTimes.filter(time => time >= row.start && time < row.end) });
   });
 }
 export function validateAutoRankings(raw: unknown, candidates: Candidate[]): Highlight[] {
