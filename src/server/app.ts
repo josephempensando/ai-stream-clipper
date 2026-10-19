@@ -7,7 +7,7 @@ import { mkdir, rename, rm, access } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { config } from './config.js';
-import { JobStore, hashFile } from './store.js';
+import { JobStore, hashFile, readJson } from './store.js';
 import { JobManager } from './jobs.js';
 import { TwitchClient } from './twitch.js';
 import { TwitchOAuth } from './twitch-oauth.js';
@@ -21,7 +21,9 @@ import { health } from './health.js';
 import { prepareRecording } from './media.js';
 import { downloadApproved } from './security.js';
 import { parseVodId, renderSchema, analysisSettingsSchema } from '../shared/validation.js';
-import type { Job } from '../shared/types.js';
+import type { Job, Transcript } from '../shared/types.js';
+import { retentionSettingsSchema } from '../shared/retention.js';
+import { runProcess } from './process.js';
 import { assessRights, normalizeRights, sourceRightsSchema, platforms, rightsUses } from '../shared/rights.js';
 
 const requestAnalysisSettings = analysisSettingsSchema.extend({ clipCount: analysisSettingsSchema.shape.clipCount.removeDefault().optional() });
@@ -166,6 +168,32 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   app.post('/api/jobs/:id/render', async (req, res) => {
     const body = renderSchema.parse(req.body); res.status(202).json(await manager.render(String(req.params.id), body.clips, body.options));
   });
+  app.post('/api/jobs/:id/retention', async (req, res) => {
+    const body = z.object({ settings: retentionSettingsSchema, clips: renderSchema.shape.clips.optional() }).parse(req.body);
+    res.status(202).json(await manager.regenerate(String(req.params.id), body.settings, body.clips));
+  });
+  app.get('/api/jobs/:id/transcript', async (req, res) => {
+    const job = store.get(String(req.params.id));
+    const transcript = await readJson<Transcript>(path.join(store.dir(job.id), 'transcript.json'));
+    if (!transcript) { res.status(409).json({ error: 'Analyze the recording first.' }); return; }
+    res.json(transcript);
+  });
+  const audioUpload = multer({ dest: path.join(root, 'uploads'), limits: { fileSize: 100 * 1024 ** 2, files: 1 } });
+  app.post('/api/jobs/:id/audio', audioUpload.single('audio'), async (req, res) => {
+    if (!req.file) throw new Error('Choose a licensed or user-owned audio file.');
+    try {
+      const job = store.get(String(req.params.id));
+      if (['queued', 'analyzing', 'rendering'].includes(job.status)) throw new Error('Wait for processing before adding audio.');
+      if ((job.audioAssets?.length || 0) >= 20) throw new Error('This recording already has 20 audio assets.');
+      const meta = z.object({ kind: z.enum(['music', 'sfx']), license: z.enum(['owned', 'licensed']), provenance: z.string().trim().min(5).max(2000), permission: z.literal('true') }).parse(req.body);
+      const probe = JSON.parse(await runProcess(config.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries', 'stream=codec_type:format=duration', '-of', 'json', req.file.path], { timeout: 30000 })) as { streams?: { codec_type: string }[]; format?: { duration?: string } };
+      if (!probe.streams?.some(s => s.codec_type === 'audio') || !Number.isFinite(Number(probe.format?.duration)) || Number(probe.format?.duration) <= 0) throw new Error('The uploaded file has no playable audio.');
+      const id = randomUUID(); const audioDir = path.join(store.dir(job.id), 'audio'); await mkdir(audioDir, { recursive: true });
+      await rename(req.file.path, path.join(audioDir, `${id}.bin`));
+      const asset = { id, kind: meta.kind, name: path.basename(req.file.originalname), provenance: meta.provenance, license: meta.license, permission: true as const, addedAt: new Date().toISOString() };
+      job.audioAssets = [...job.audioAssets || [], asset]; await store.save(job); res.status(201).json(asset);
+    } finally { await rm(req.file.path, { force: true }); }
+  });
   app.get('/api/jobs/:id/media', (req, res) => { const job = store.get(String(req.params.id)); res.sendFile(store.mediaPath(job.id)); });
   app.get('/api/jobs/:id/results', (req, res) => {
     const job = store.get(String(req.params.id));
@@ -178,6 +206,11 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
     if (job.status !== 'complete' || !job.outputs.some(c => c.file === file)) { res.status(404).json({ error: 'Export not found.' }); return; }
     res.download(path.join(store.dir(job.id), 'exports', file), file);
   });
+  app.get('/api/jobs/:id/preview/:file', (req, res) => {
+    const job = store.get(String(req.params.id)); const file = String(req.params.file);
+    if (job.status !== 'complete' || !job.outputs.some(c => c.file === file)) { res.status(404).json({ error: 'Export not found.' }); return; }
+    res.sendFile(path.join(store.dir(job.id), 'exports', file));
+  });
   app.get('/api/jobs/:id/zip', async (req, res, next) => {
     const job = store.get(String(req.params.id)); if (job.status !== 'complete') { res.status(409).json({ error: 'Finish rendering first.' }); return; }
     const dir = path.join(store.dir(job.id), 'exports');
@@ -185,7 +218,11 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
     res.attachment('stream-clips.zip'); const archive = new ZipArchive({ zlib: { level: 1 } });
     archive.on('error', error => { if (res.headersSent) res.destroy(error); else next(error); });
     res.on('close', () => archive.abort()); archive.pipe(res);
-    for (const output of job.outputs) { archive.file(path.join(dir, output.file), { name: output.file }); if (job.renderOptions?.subtitles) archive.file(path.join(dir, output.file.replace('.mp4', '.srt')), { name: output.file.replace('.mp4', '.srt') }); }
+    for (const output of job.outputs) {
+      archive.file(path.join(dir, output.file), { name: output.file });
+      const extensions = job.renderOptions?.retention ? ['.ass', '.edl.json', ...(job.renderOptions.retention.captions.enabled ? ['.srt'] : [])] : job.renderOptions?.subtitles ? ['.srt'] : [];
+      for (const extension of extensions) { const sidecar = output.file.replace('.mp4', extension); archive.file(path.join(dir, sidecar), { name: sidecar }); }
+    }
     archive.file(path.join(dir, 'results.json'), { name: 'results.json' }); await archive.finalize();
   });
   app.use('/api', (_req, res) => { res.status(404).json({ error: 'API route not found.' }); });

@@ -15,12 +15,14 @@ export interface PipelineAdapters {
   rank: (candidates: Candidate[], images: string[], settings?: { onWarning: (warning: string) => void; durationMode?: 'auto' }) => Promise<Highlight[]>;
 }
 export const localAdapters: PipelineAdapters = { transcribe: transcribeChunk, rank: (candidates, images, settings) => rankBatch(candidates, images, { chooseRanges: true, ...settings }) };
-export async function analyzeRecording(job: Job, file: string, root: string, progress: (stage: string, percent: number) => Promise<void>, adapters = localAdapters): Promise<{ highlights: Highlight[]; transcript: Transcript; warnings: string[] }> {
+export async function analyzeRecording(job: Job, file: string, root: string, progress: (stage: string, percent: number) => Promise<void>, adapters = localAdapters): Promise<{ highlights: Highlight[]; transcript: Transcript; warnings: string[]; evidence: Evidence[] }> {
   if (!job.media.hasAudio) throw new Error('Recording has no audio track. Full Whisper analysis requires audio.');
   const isLocal = adapters === localAdapters;
   const clipCount = job.clipCount ?? config.clipCount;
   const minEngagementScore = job.minEngagementScore ?? config.minEngagementScore ?? 70;
-  const settings = createHash('sha256').update(JSON.stringify({ version: 2, engine: isLocal ? 'local' : 'test-double', whisper: config.whisperModel, language: config.whisperLanguage, chunk: config.chunkSeconds, ollama: config.ollamaModel, vision: config.vision })).digest('hex').slice(0, 16);
+  // Version 3 retains real Whisper word timings; Analyze again upgrades old
+  // segment-only caches instead of silently reusing unaligned captions forever.
+  const settings = createHash('sha256').update(JSON.stringify({ version: 3, engine: isLocal ? 'local' : 'test-double', whisper: config.whisperModel, language: config.whisperLanguage, chunk: config.chunkSeconds, ollama: config.ollamaModel, vision: config.vision })).digest('hex').slice(0, 16);
   const cache = path.join(root, 'cache', `${job.mediaHash}-${settings}`); await mkdir(cache, { recursive: true });
   let transcript = await readJson<Transcript>(path.join(cache, 'transcript.json'));
   if (!transcript) {
@@ -99,5 +101,5 @@ export async function analyzeRecording(job: Job, file: string, root: string, pro
   if (weak) warnings.push(`${weak} model suggestion(s) fell below the minimum engagement score of ${minEngagementScore}/100 and were excluded. Scores are heuristic judgments; review selected moments.`);
   if (clipCount !== 'all' && highlights.length < clipCount) warnings.push(`Found ${highlights.length} of ${clipCount} requested non-overlapping highlights; kept supported model-chosen boundaries without padding or inventing moments.`);
   await progress('Highlights ready for review', 100);
-  return { highlights, transcript, warnings };
+  return { highlights, transcript, warnings, evidence };
 }

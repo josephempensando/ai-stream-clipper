@@ -1,7 +1,7 @@
 import type { Candidate, Evidence, Highlight, Segment } from '../shared/types.js';
 import { MAX_HIGHLIGHT_COUNT } from '../shared/validation.js';
 export function offsetSegments(segments: Segment[], offset: number, duration: number): Segment[] {
-  return segments.map(s => ({ start: Math.max(0, s.start + offset), end: Math.min(duration, s.end + offset), text: s.text.trim() }))
+  return segments.map(s => ({ start: Math.max(0, s.start + offset), end: Math.min(duration, s.end + offset), text: s.text.trim(), ...(s.words ? { words: s.words.map(w => ({ ...w, start: Math.max(0, w.start + offset), end: Math.min(duration, w.end + offset) })).filter(w => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start) } : {}) }))
     .filter(s => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start && s.text.length > 0);
 }
 const reaction = /\b(wow|what|no way|oh my|insane|wait|crazy|unbelievable|haha|laugh|clutch|let'?s go)\b|[!?]{2}/i;

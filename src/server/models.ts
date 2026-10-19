@@ -16,8 +16,7 @@ export async function transcribeChunk(wav: string, outputDir: string): Promise<S
   env[pathKey] = `${path.dirname(config.ffmpeg)}${path.delimiter}${env[pathKey] || ''}`;
   await runProcess(config.whisper, [wav, '--model', config.whisperModel, '--language', config.whisperLanguage, '--task', 'transcribe', '--output_format', 'json', '--output_dir', outputDir, '--fp16', 'False', '--word_timestamps', 'True', '--verbose', 'False'], { timeout: config.whisperTimeout, env });
   const data = speechSchema.parse(JSON.parse(await readFile(path.join(outputDir, `${path.basename(wav, '.wav')}.json`), 'utf8')));
-  // Segment timestamps are more readable captions than isolated words.
-  return data.segments.map(({ start, end, text }) => ({ start, end, text }));
+  return data.segments.map(({ start, end, text, words }) => ({ start, end, text, ...(words ? { words } : {}) }));
 }
 const rankingSchema = z.object({ rankings: z.array(z.object({ id: z.string(), score: z.number().finite().min(0).max(100), title: z.string().trim().min(1).max(100), explanation: z.string().trim().min(1).max(1200) })) });
 const rangeSchema = rankingSchema.shape.rankings.element.extend({ start: z.number().finite().nonnegative(), end: z.number().finite().positive(), description: z.string().trim().min(1).max(1200).optional() });

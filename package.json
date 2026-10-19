@@ -16,7 +16,9 @@
     "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server/server/index.js",
     "demo:recording": "tsx scripts/create-demo.ts",
-    "smoke:local": "tsx scripts/smoke-local.ts"
+    "smoke:local": "tsx scripts/smoke-local.ts",
+    "smoke:retention": "tsx scripts/smoke-retention.ts",
+    "test:retention-ui": "tsx scripts/check-retention-ui.ts"
   },
   "keywords": [],
   "author": "",

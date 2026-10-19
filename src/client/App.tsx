@@ -6,6 +6,9 @@ import { api, uploadRecording } from './api.js';
 import PublicTwitchModes from './PublicTwitchModes.js';
 import LivestreamAnalyzer from './LivestreamAnalyzer.js';
 import SourceRightsEditor from './SourceRightsEditor.js';
+import RetentionEditor from './RetentionEditor.js';
+import { retentionSettingsSchema } from '../shared/retention.js';
+import type { RetentionSettings } from '../shared/retention.js';
 import { normalizeRights, unknownRights, sourceRightsSchema } from '../shared/rights.js';
 import type { SourceRights } from '../shared/rights.js';
 
@@ -25,12 +28,14 @@ export default function App() {
   const [rights, setRights] = useState<SourceRights>(unknownRights);
   const durationMode = 'auto';
   const [highlightLimit, setHighlightLimit] = useState<number | null>(null);
-  const clipCount = Math.max(5, Math.min(MAX_HIGHLIGHT_COUNT, highlightLimit ?? (typeof health?.editorDefaults?.clipCount === 'number' ? health.editorDefaults.clipCount : MAX_HIGHLIGHT_COUNT)));
+  const clipCount = Math.max(1, Math.min(MAX_HIGHLIGHT_COUNT, highlightLimit ?? (typeof health?.editorDefaults?.clipCount === 'number' ? health.editorDefaults.clipCount : MAX_HIGHLIGHT_COUNT)));
   const [qualityScore, setQualityScore] = useState<number | null>(null);
   const minEngagementScore = qualityScore ?? health?.editorDefaults?.minEngagementScore ?? 70;
   const [busy, setBusy] = useState(''); const [uploadPercent, setUploadPercent] = useState(0); const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]); const [edits, setEdits] = useState<Record<string, ClipEdit>>({});
+  const editsJob = useRef<string | null>(null);
   const [options, setOptions] = useState<RenderOptions>({ layout: 'blur', cropX: 0.5, subtitles: false });
+  const [retention, setRetention] = useState<RetentionSettings>(() => retentionSettingsSchema.parse({}));
   const [preview, setPreview] = useState<ClipEdit | null>(null);
   const [manualStart, setManualStart] = useState(0); const [manualEnd, setManualEnd] = useState(45); const [manualTitle, setManualTitle] = useState('Stream highlight');
   const [clip, setClip] = useState<TwitchClip | null>(null); const [clipLinks, setClipLinks] = useState<{ landscape_download_url: string | null; portrait_download_url: string | null }[]>([]);
@@ -43,6 +48,7 @@ export default function App() {
   const loadJobs = useCallback(async () => { try { setJobs(await api<Job[]>('/jobs')); } catch { /* initial diagnostics surface server errors */ } }, []);
   useEffect(() => { void loadHealth(); void loadJobs(); }, [loadHealth, loadJobs]);
   useEffect(() => { setRights(normalizeRights(job?.rights)); if (job) { setQualityScore(job.minEngagementScore ?? 70); setHighlightLimit(typeof job.clipCount === 'number' ? job.clipCount : MAX_HIGHLIGHT_COUNT); } }, [job?.id]);
+  useEffect(() => { if (job?.retentionSettings) setRetention(retentionSettingsSchema.parse(job.retentionSettings)); }, [job?.id]);
   useEffect(() => {
     if (!job || !processing) return;
     let active = true;
@@ -51,10 +57,11 @@ export default function App() {
     return () => { active = false; clearInterval(timer); };
   }, [job?.id, processing]);
   useEffect(() => {
-    if (!job?.highlights.length) return;
-    setEdits(Object.fromEntries(job.highlights.map(h => [h.id, { id: h.id, start: h.start, end: h.end }])));
+    if (!job?.highlights.length || processing) return;
+    const sameProject = editsJob.current === job.id; editsJob.current = job.id;
+    setEdits(current => Object.fromEntries(job.highlights.map(h => [h.id, { id: h.id, start: h.start, end: h.end, ...job.clipEdits?.find(e => e.id === h.id), ...(sameProject ? current[h.id] : {}) }])));
     setSelected(job.highlights.map(h => h.id)); void loadJobs();
-  }, [highlightsKey, loadJobs]);
+  }, [highlightsKey, job?.status, loadJobs]);
   const attempt = async (label: string, work: () => Promise<void>) => {
     setError(''); setBusy(label); try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   };
@@ -81,16 +88,17 @@ export default function App() {
     const saved = await api<{ rights: SourceRights }>(`/jobs/${job.id}/rights`, sourceRightsSchema.parse(rights), 'PUT');
     setRights(saved.rights); setJob({ ...job, rights: saved.rights }); await loadJobs();
   });
-  const analyze = () => void attempt('Starting analysis', async () => { if (job) setJob(await api<Job>(`/jobs/${job.id}/analyze`, { durationMode, clipCount, minEngagementScore })); });
+  const analyze = () => void attempt('Starting analysis', async () => { if (job) { const updated = await api<Job>(`/jobs/${job.id}/analyze`, { durationMode, clipCount, minEngagementScore, retention }); setEdits(updated.status === 'review' ? Object.fromEntries(updated.highlights.map(h => [h.id, { id: h.id, start: h.start, end: h.end }])) : {}); setJob(updated); } });
+  const regenerate = () => void attempt('Regenerating retention edits', async () => { if (job) setJob(await api<Job>(`/jobs/${job.id}/retention`, { settings: retention, clips: job.highlights.map(h => edits[h.id] || { id: h.id, start: h.start, end: h.end }) })); });
   const render = () => void attempt('Starting export', async () => {
     if (!job) return; const clips = selected.map(id => edits[id]!); validateEdits(clips, job.media.duration);
-    setJob(await api<Job>(`/jobs/${job.id}/render`, { clips, options }));
+    setJob(await api<Job>(`/jobs/${job.id}/render`, { clips, options: { ...options, retention } }));
   });
   const playHighlight = (edit: ClipEdit) => {
     setPreview(edit); if (video.current) { video.current.currentTime = edit.start; void video.current.play().catch(() => {}); }
   };
-  const newProject = () => { setJob(null); setFile(null); setVod(null); setEmbedId(null); setClip(null); setError(''); setPreview(null); setPermission(false); setRights(unknownRights()); setQualityScore(null); setHighlightLimit(null); setView('workbench'); };
-  const selectJob = (recording: Job) => { setJob(recording); setPreview(null); setView('workbench'); setWorkflowMode('authorized'); setError(''); };
+  const newProject = () => { setJob(null); setFile(null); setVod(null); setEmbedId(null); setClip(null); setError(''); setPreview(null); setPermission(false); setRights(unknownRights()); setQualityScore(null); setHighlightLimit(null); setRetention(retentionSettingsSchema.parse({})); setView('workbench'); };
+  const selectJob = (recording: Job) => { setJob(recording); setRetention(retentionSettingsSchema.parse(recording.retentionSettings || {})); setPreview(null); setView('workbench'); setWorkflowMode('authorized'); setError(''); };
   const createClip = () => void attempt('Creating authorized Twitch clip', async () => {
     if (!permission || !vod) throw new Error('Confirm broadcaster/editor authorization and look up the VOD first.');
     const result = await api<TwitchClip>('/twitch/clips', { vodId: vod.id, start: manualStart, end: manualEnd, title: manualTitle, permission: true });
@@ -135,6 +143,7 @@ export default function App() {
           <div hidden={workflowMode !== 'analyzer'}><LivestreamAnalyzer onRecording={() => setWorkflowMode('authorized')} /></div>
           <div hidden={workflowMode !== 'discover' && workflowMode !== 'live'}><PublicTwitchModes mode={workflowMode === 'live' ? 'live' : 'discover'} onRecording={() => setWorkflowMode('authorized')} /></div>
           <div hidden={workflowMode !== 'authorized'}>
+          <RetentionEditor job={job} settings={retention} onSettings={setRetention} edits={edits} onEdit={edit => setEdits(current => ({ ...current, [edit.id]: edit }))} selected={selected} onJob={setJob} onRegenerate={regenerate} onExport={render} disabled={processing || !!busy} />
           <div className="workflow">{[{ text: 'Add your stream', done: !!job, active: !job }, { text: 'Find the highlights', done: !!job?.highlights.length, active: !!job && !job.highlights.length }, { text: 'Review & export', done: job?.status === 'complete', active: !!job?.highlights.length }].map((step, i) => <div className={`workflow-step ${step.active ? 'current' : ''} ${step.done ? 'done' : ''}`} key={step.text}><span>{step.done ? <Check size={13} /> : `0${i + 1}`}</span>{step.text}{i < 2 && <div className="step-line" />}</div>)}</div>
           <div className="workbench-grid">
             <div className="left-column">
@@ -147,7 +156,7 @@ export default function App() {
               </section>
               <section className="panel analysis-panel"><div className="panel-title"><span className="step-icon violet"><Sparkles size={18} /></span><h2>Highlight recipe</h2><span className="panel-meta">02 / ANALYZE</span></div><div className="recipe-grid"><div><span>CLIPS</span><strong>Up to {clipCount}<small>best moments</small></strong></div><div><span>DURATION</span><strong>AI chosen<small>natural boundaries</small></strong></div><div><span>FORMAT</span><strong>9:16 <small>vertical</small></strong></div></div>
                 <label className="policy-control">Duration mode<select aria-label="Duration mode" value={durationMode} disabled><option value="auto">Auto · AI determines each clip duration</option></select></label>
-                <label className="policy-control">Maximum highlights<select aria-label="Maximum highlights" value={clipCount} disabled={processing || !!busy} onChange={e => setHighlightLimit(Number(e.target.value))}>{[5, 6, 7, 8].map(count => <option key={count} value={count}>{count} best moments</option>)}</select></label>
+                <label className="policy-control">Maximum highlights<select aria-label="Maximum highlights" value={clipCount} disabled={processing || !!busy} onChange={e => setHighlightLimit(Number(e.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map(count => <option key={count} value={count}>{count} best moments</option>)}</select></label>
                 <label className="policy-control">Minimum engagement score<input aria-label="Minimum engagement score" type="number" min="0" max="100" step="1" value={minEngagementScore} disabled={processing || !!busy} onChange={e => setQualityScore(Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))))} /></label>
                 <small className="engine-hint">Shortlist promising moments for faster analysis, then keep up to {clipCount} that meet this score. Fewer are returned when evidence is weak. Preview the results.</small>
                 <div className="content-tag"><Activity size={14} />Hook · story · emotional impact<span>Standalone coherence</span></div><button className="button primary full analyze-button" onClick={analyze} disabled={!job || !enginesReady || processing || !!busy}><Sparkles size={18} />{processing && job.status !== 'rendering' ? 'Finding your highlights…' : job?.highlights.length ? 'Analyze again' : 'Analyze stream'}<ArrowRight size={17} /></button><div className="engine-status"><span className={health?.whisper ? 'green-dot' : 'amber-dot'} />Whisper<span className={health?.ollama ? 'green-dot' : 'amber-dot'} />Ollama<span className={health?.ffmpeg && health.ffprobe ? 'green-dot' : 'amber-dot'} />FFmpeg<button onClick={() => { setView('setup'); void loadHealth(); }}>Manage<ChevronRight size={12} /></button></div>{!enginesReady && <small className="engine-hint">{health ? 'Install missing local engines to enable analysis.' : 'Checking local engines…'}</small>}</section>
@@ -168,7 +177,15 @@ export default function App() {
             </div>
           </div>
           {mode === 'twitch' && vod && <section className="panel twitch-panel"><div className="panel-title"><Twitch size={19} /><h2>Authorized Twitch clip</h2><span className="panel-meta">BROADCASTER / EDITOR ONLY</span></div><p>Create a known moment through Twitch’s official API. This does not enable full-VOD automatic analysis.</p><div className="manual-grid"><label>Title<input value={manualTitle} onChange={e => setManualTitle(e.target.value)} /></label><label>Start (seconds)<input type="number" min="0" step="0.1" value={manualStart} onChange={e => setManualStart(Number(e.target.value))} /></label><label>End (integer seconds)<input type="number" min="30" step="1" value={manualEnd} onChange={e => setManualEnd(Number(e.target.value))} /></label><button className="button secondary" disabled={!permission || !!busy || !health?.clipAuth} onClick={createClip}>Create Twitch clip<ArrowRight size={15} /></button></div>{!health?.clipAuth && <small>Configure a server-side OAuth user token with channel:manage:clips or editor:manage:clips.</small>}{clip && <div className="official-links"><p role="status">{clipMessage}</p><a href={clip.edit_url} target="_blank" rel="noreferrer">Open official Twitch editor<ArrowRight size={14} /></a><button className="text-button" onClick={() => setClip({ ...clip })}>Refresh download lookup</button>{clipLinks.map((links, i) => <div key={i}>{links.landscape_download_url && <a href={links.landscape_download_url} rel="noreferrer" target="_blank">Download landscape clip</a>}{links.portrait_download_url && <a href={links.portrait_download_url} rel="noreferrer" target="_blank">Download portrait clip</a>}</div>)}</div>}</section>}
-          <section className="panel export-panel"><div className="export-heading"><span className="step-icon"><ArrowDownToLine size={18} /></span><div><h2>Create video drafts.</h2><p>1080 × 1920 · H.264 + AAC · Rendering does not clear publishing rights.</p></div></div><div className="export-settings"><label><Crop size={15} /><select aria-label="Vertical layout" value={options.layout} onChange={e => setOptions({ ...options, layout: e.target.value as RenderOptions['layout'] })}><option value="blur">Blurred padding</option><option value="crop">Fill with crop</option></select></label>{options.layout === 'crop' && <label className="crop-position">Crop position<input aria-label="Horizontal crop position" type="range" min="0" max="1" step="0.05" value={options.cropX} onChange={e => setOptions({ ...options, cropX: Number(e.target.value) })} /></label>}<label className="checkbox"><input type="checkbox" checked={options.subtitles} onChange={e => setOptions({ ...options, subtitles: e.target.checked })} /><Subtitles size={16} /><span>Subtitles</span></label></div><button className="button primary" onClick={render} disabled={!selected.length || processing || !!busy || !job?.highlights.length}><Scissors size={17} />Generate {selected.length ? selected.length : ''} clips<ArrowRight size={16} /></button></section>
+          <section className="panel export-panel">
+            <div className="export-heading"><span className="step-icon"><ArrowDownToLine size={18} /></span><div><h2>Create video drafts.</h2><p>1080 × 1920 · H.264 + AAC · Rendering does not clear publishing rights.</p></div></div>
+            <div className="export-settings">
+              <label><Crop size={15} /><select aria-label="Vertical layout" value={options.layout} onChange={e => setOptions({ ...options, layout: e.target.value as RenderOptions['layout'] })}><option value="blur">Blurred padding</option><option value="crop">Fill with crop</option></select></label>
+              {options.layout === 'crop' && <label className="crop-position">Crop position<input aria-label="Horizontal crop position" type="range" min="0" max="1" step="0.05" value={options.cropX} onChange={e => setOptions({ ...options, cropX: Number(e.target.value) })} /></label>}
+              <label className="checkbox"><input type="checkbox" checked={retention.captions.enabled} onChange={e => setRetention({ ...retention, captions: { ...retention.captions, enabled: e.target.checked } })} /><Subtitles size={16} /><span>Subtitles</span></label>
+            </div>
+            <button className="button primary" onClick={render} disabled={!selected.length || processing || !!busy || !job?.highlights.length}><Scissors size={17} />Generate {selected.length ? selected.length : ''} clips<ArrowRight size={16} /></button>
+          </section>
           {job?.status === 'complete' && <section className="panel downloads"><div className="panel-title"><Check size={19} /><h2>Your video drafts are ready</h2><a className="button primary small" href={`/api/jobs/${job.id}/zip`}><ArrowDownToLine size={15} />Download ZIP</a></div><div className="download-links">{job.outputs.map(o => <a href={`/api/jobs/${job.id}/files/${o.file}`} key={o.file}><FileVideo size={17} />{o.file}<ArrowDownToLine size={14} /></a>)}<a href={`/api/jobs/${job.id}/results`}><Code2 size={17} />results.json<ArrowDownToLine size={14} /></a></div></section>}
           <footer className="page-footer"><span><ShieldCheck size={13} />Private analysis and drafts. Review source rights before publishing.</span><span>Built for creators. Kept local.</span></footer>
           </div>

@@ -1,10 +1,12 @@
 import { z } from 'zod';
+import { clipRetentionSchema, retentionSettingsSchema } from './retention.js';
 
 export const MAX_HIGHLIGHT_COUNT = 8;
 export const analysisSettingsSchema = z.object({
   durationMode: z.literal('auto').default('auto'),
   clipCount: z.union([z.literal('all').transform(() => MAX_HIGHLIGHT_COUNT), z.coerce.number().int().positive().max(MAX_HIGHLIGHT_COUNT)]).default(MAX_HIGHLIGHT_COUNT),
   minEngagementScore: z.coerce.number().finite().min(0).max(100).optional(),
+  retention: retentionSettingsSchema.optional(),
 });
 
 export function parseVodId(input: string): string {
@@ -21,8 +23,8 @@ export function parseVodId(input: string): string {
   return id;
 }
 export const renderSchema = z.object({
-  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive() })).min(1),
-  options: z.object({ layout: z.enum(['blur', 'crop']), cropX: z.number().min(0).max(1), subtitles: z.boolean() }),
+  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive(), adjustments: clipRetentionSchema.optional() })).min(1),
+  options: z.object({ layout: z.enum(['blur', 'crop']), cropX: z.number().min(0).max(1), subtitles: z.boolean(), retention: retentionSettingsSchema.optional() }),
 });
 export function validateEdits(clips: { id: string; start: number; end: number }[], duration: number): void {
   if (!clips.length || !Number.isFinite(duration) || duration <= 0) throw new Error('Select at least one clip from a valid recording.');

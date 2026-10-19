@@ -179,4 +179,6 @@ In restricted Codex sandboxes, Node may fail to resolve parent directories or wr
 
 ## Repository map
 
+The [AI Retention Editing Engine guide](docs/retention-engine.md) documents Auto Edit, narrative evidence, EDLs, karaoke captions, audio provenance, preview/export controls, verification commands and current model limitations.
+
 `src/client/`: dashboard and styles; `src/shared/`: types/request rules; `src/server/`: API, Twitch, job storage/queue, media, models, analysis and rendering; `tests/`: automated checks; `scripts/`: generated-recording and live-engine smoke utilities. `data/`, `.env`, generated test artifacts, build output and dependencies are ignored. No cloud model API is used.

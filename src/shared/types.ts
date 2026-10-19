@@ -1,5 +1,7 @@
 import type { SourceRights } from './rights.js';
-export interface Segment { start: number; end: number; text: string }
+import type { AudioAsset, ClipRetention, RetentionAnalysis, RetentionSettings } from './retention.js';
+export interface Word { start: number; end: number; word: string }
+export interface Segment { start: number; end: number; text: string; words?: Word[] }
 export interface Transcript { segments: Segment[]; language: string; model: string }
 export interface Evidence { time: number; loudness: number; scene: boolean }
 export interface Candidate {
@@ -8,17 +10,21 @@ export interface Candidate {
   cues?: Segment[];
 }
 export interface Highlight extends Candidate {
+  retention?: RetentionAnalysis;
   title: string; explanation: string; score: number;
   // Optional for persisted projects created before automatic duration metadata.
   startTime?: number; endTime?: number; duration?: number; description?: string;
   reasonForSelection?: string; engagementScore?: number;
 }
 export interface MediaInfo { duration: number; width: number; height: number; hasAudio: boolean }
-export interface RenderOptions { layout: 'blur' | 'crop'; cropX: number; subtitles: boolean }
-export interface ClipEdit { id: string; start: number; end: number }
+export interface RenderOptions { layout: 'blur' | 'crop'; cropX: number; subtitles: boolean; retention?: RetentionSettings | undefined }
+export interface ClipEdit { id: string; start: number; end: number; adjustments?: ClipRetention | undefined }
 export interface OutputClip { id: string; start: number; end: number; title: string; file: string }
 export type Status = 'uploaded' | 'queued' | 'analyzing' | 'review' | 'rendering' | 'complete' | 'error';
 export interface Job {
+  retentionSettings?: RetentionSettings;
+  audioAssets?: AudioAsset[];
+  clipEdits?: ClipEdit[];
   id: string; name: string; createdAt: string; status: Status; stage: string; progress: number;
   media: MediaInfo; mediaHash: string; source: 'upload' | 'approved-url'; vodId: string | null;
   vodOffset: number; highlights: Highlight[]; outputs: OutputClip[]; warnings: string[];

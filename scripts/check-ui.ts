@@ -70,6 +70,7 @@ try {
   await review.route('**/api/health', route => route.fulfill({ json: { ffmpeg: true, ffprobe: true, whisper: true, ollama: true, model: 'test-double', whisperModel: 'test-double', twitch: false, clipAuth: false, editorDefaults: { durationMode: 'auto', clipCount: 8, minEngagementScore: 70 } } }));
   await review.route('**/api/jobs', route => route.fulfill({ json: [fixture] }));
   await review.route('**/api/jobs/range-review/media', route => route.fulfill({ status: 204 }));
+  await review.route('**/api/jobs/range-review/transcript', route => route.fulfill({ json: { segments: [], model: 'test-double', language: 'en' } }));
   await review.route('**/api/jobs/range-review/render', async route => {
     submitted = (route.request().postDataJSON() as { clips: ClipEdit[] }).clips;
     await route.fulfill({ json: fixture });
@@ -91,7 +92,8 @@ try {
   const analyzeRequest = review.waitForRequest('**/api/jobs/range-review/analyze');
   await review.getByRole('button', { name: 'Analyze again', exact: true }).click(); await analyzeRequest;
   await review.getByRole('button', { name: 'Analyze again', exact: true }).waitFor();
-  assert.deepEqual(analysisSettings, { durationMode: 'auto', clipCount: 6, minEngagementScore: 75 });
+  assert.deepEqual({ durationMode: (analysisSettings as { durationMode: string }).durationMode, clipCount: (analysisSettings as { clipCount: number }).clipCount, minEngagementScore: (analysisSettings as { minEngagementScore: number }).minEngagementScore }, { durationMode: 'auto', clipCount: 6, minEngagementScore: 75 });
+  assert.equal((analysisSettings as { retention: { autoEdit: boolean } }).retention.autoEdit, false);
   await review.getByLabel('End for Short reaction', { exact: true }).fill('15');
   await review.getByText('15.0s', { exact: true }).waitFor();
   const request = review.waitForRequest('**/api/jobs/range-review/render');
