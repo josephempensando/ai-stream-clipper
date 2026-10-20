@@ -120,8 +120,8 @@ export class TwitchClient {
   async createClip(input: { vodId: string; start: number; end: number; title: string }): Promise<{ id: string; edit_url: string; broadcasterId: string }> {
     const vod = await this.video(input.vodId);
     const duration = parseTwitchDuration(vod.duration);
-    validateEdits([{ id: 'manual', start: input.start, end: input.end }], duration);
     if (input.end - input.start < 30 || input.end - input.start > 60) throw new Error('Twitch API clips must be 30–60 seconds.');
+    validateEdits([{ id: 'manual', start: input.start, end: input.end }], duration);
     if (!Number.isInteger(input.end) || Math.abs((input.end - input.start) * 10 - Math.round((input.end - input.start) * 10)) > 0.00001) throw new Error('Twitch clip end must be an integer second and duration must have 0.1-second precision.');
     const editor = await this.authorization(vod.user_id);
     const url = new URL('https://api.twitch.tv/helix/videos/clips');

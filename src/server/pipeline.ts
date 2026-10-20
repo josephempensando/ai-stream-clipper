@@ -48,7 +48,7 @@ export async function analyzeRecording(job: Job, file: string, root: string, pro
   const contexts = buildCandidateContexts(transcript.segments, evidence, job.media.duration);
   const candidates = shortlistContexts(contexts, config.highlightContextBudget);
   // Invalidate fixed-window rankings while retaining completed transcription.
-  const rangeCache = path.join(cache, `shortlist-v1-budget-${config.highlightContextBudget}-silence-${config.maxHighlightSilenceSeconds}`);
+  const rangeCache = path.join(cache, `shortlist-v2-min-30-budget-${config.highlightContextBudget}-silence-${config.maxHighlightSilenceSeconds}`);
   await writeJson(path.join(rangeCache, 'candidates.json'), candidates.map(({ id, start, end, cueCount }) => ({ id, start, end, cueCount })));
   const ranked: Highlight[] = []; const size = config.vision ? 2 : 3;
   const recoveryWarnings = new Set<string>(); let stopped: Error | null = null; let reviewedCount = 0;
@@ -94,7 +94,7 @@ export async function analyzeRecording(job: Job, file: string, root: string, pro
   const warnings = [`Heuristic cues include loudness, reaction language and scenes; laughter is not independently classified.`, ...(config.vision ? [] : ['Text model used transcript and scene metadata; sampled frames were not interpreted by a vision model.'])];
   if (!isLocal) warnings.unshift('TEST ONLY: transcription and ranking used injected model doubles; actual Whisper/Ollama inference did not run.');
   warnings.push(...recoveryWarnings);
-  if (contexts.length > candidates.length) warnings.push(`For faster analysis, shortlisted ${candidates.length} of ${contexts.length} reading contexts across the recording, favoring reaction cues. This approximate search can miss worthwhile moments; no clip durations were restricted.`);
+  if (contexts.length > candidates.length) warnings.push(`For faster analysis, shortlisted ${candidates.length} of ${contexts.length} reading contexts across the recording, favoring reaction cues. This approximate search can miss worthwhile moments; clips require 30 seconds of meaningful narrative with no maximum duration.`);
   if (reviewedCount < candidates.length) warnings.push(`${candidates.length - reviewedCount} reading context(s) could not be analyzed and were skipped. Valid highlights are ready; Analyze again retries missing work using cached transcription and rankings.`);
   if (stopped) warnings.push(stopped.message);
   const weak = ranked.filter(h => h.score < minEngagementScore).length;

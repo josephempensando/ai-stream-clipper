@@ -11,10 +11,10 @@ import path from 'node:path';
 import { JobStore, writeJson } from '../src/server/store.js';
 import { createApp } from '../src/server/app.js';
 
-const moments: Highlight[] = Array.from({ length: 25 }, (_, i) => ({ id: `good-${i}`, start: i * 20, end: i * 20 + 15, score: 85, title: 'Complete reaction', explanation: 'A complete supported moment.', heuristicScore: 0, evidence: [], transcript: 'Wow, we did it!', frameTimes: [] }));
+const moments: Highlight[] = Array.from({ length: 25 }, (_, i) => ({ id: `good-${i}`, start: i * 40, end: i * 40 + 30, score: 85, title: 'Complete reaction', explanation: 'A complete supported moment.', heuristicScore: 0, evidence: [], transcript: 'Wow, we did it!', frameTimes: [] }));
 
-test('analysis defaults to eight qualifying highlights and accepts legacy all requests', () => {
-  assert.equal(analysisSettingsSchema.parse({}).clipCount, 8);
+test('analysis defaults to five qualifying highlights and accepts legacy all requests', () => {
+  assert.equal(analysisSettingsSchema.parse({}).clipCount, 5);
   assert.equal(analysisSettingsSchema.parse({ clipCount: 'all', minEngagementScore: 75 }).minEngagementScore, 75);
 });
 
@@ -32,7 +32,7 @@ test('quality filtering excludes weak moments and duplicate ranges without filli
 
 test('exports accept more than twenty validated clips', () => {
   const clips = moments.map(({ id, start, end }) => ({ id, start, end }));
-  assert.doesNotThrow(() => validateEdits(clips, 530));
+  assert.doesNotThrow(() => validateEdits(clips, 1030));
   assert.equal(renderSchema.parse({ clips, options: { layout: 'blur', cropX: 0.5, subtitles: false } }).clips.length, 25);
 });
 
@@ -65,7 +65,7 @@ test('legacy unlimited jobs migrate to eight while saved numeric limits survive 
   await writeJson(path.join(store.dir(oversizedId), 'job.json'), { ...fixture, id: oversizedId, clipCount: 25, minEngagementScore: 95, selectionVersion: 1 });
   await store.init();
   assert.equal(store.get(oldId).clipCount, 8); assert.equal(store.get(newId).clipCount, 2);
-  assert.equal(store.get(oversizedId).clipCount, 8); assert.equal(store.get(oversizedId).minEngagementScore, 95);
+  assert.equal(store.get(oversizedId).clipCount, 5); assert.equal(store.get(oversizedId).minEngagementScore, 95);
   const { app, manager, oauth, twitchLive } = await createApp(root);
   const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(() => { oauth.close(); twitchLive.close(); server.closeAllConnections(); server.close(); });

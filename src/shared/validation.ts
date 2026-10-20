@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { clipRetentionSchema, retentionSettingsSchema } from './retention.js';
+import { CLIP_MIN_DURATION, DEFAULT_CLIP_COUNT, meetsMinimumDuration } from './duration.js';
 
 export const MAX_HIGHLIGHT_COUNT = 8;
 export const analysisSettingsSchema = z.object({
   durationMode: z.literal('auto').default('auto'),
-  clipCount: z.union([z.literal('all').transform(() => MAX_HIGHLIGHT_COUNT), z.coerce.number().int().positive().max(MAX_HIGHLIGHT_COUNT)]).default(MAX_HIGHLIGHT_COUNT),
+  clipCount: z.union([z.literal('all').transform(() => MAX_HIGHLIGHT_COUNT), z.coerce.number().int().positive().max(MAX_HIGHLIGHT_COUNT)]).default(DEFAULT_CLIP_COUNT),
   minEngagementScore: z.coerce.number().finite().min(0).max(100).optional(),
   retention: retentionSettingsSchema.optional(),
 });
@@ -23,8 +24,8 @@ export function parseVodId(input: string): string {
   return id;
 }
 export const renderSchema = z.object({
-  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive(), adjustments: clipRetentionSchema.optional() })).min(1),
-  options: z.object({ layout: z.enum(['blur', 'crop']), cropX: z.number().min(0).max(1), subtitles: z.boolean(), retention: retentionSettingsSchema.optional() }),
+  clips: z.array(z.object({ id: z.string().min(1), start: z.number().finite().nonnegative(), end: z.number().finite().positive(), adjustments: clipRetentionSchema.optional() }).refine(clip => meetsMinimumDuration(clip.end - clip.start), { message: 'Each clip must be at least 30 seconds long.', path: ['end'] })).min(1),
+  options: z.object({ layout: z.enum(['blur', 'crop']), cropX: z.number().min(0).max(1), subtitles: z.boolean(), retention: retentionSettingsSchema.optional(), destination: z.object({ name: z.string().trim().min(1).max(100), maxDurationSeconds: z.number().finite().min(CLIP_MIN_DURATION) }).strict().optional() }),
 });
 export function validateEdits(clips: { id: string; start: number; end: number }[], duration: number): void {
   if (!clips.length || !Number.isFinite(duration) || duration <= 0) throw new Error('Select at least one clip from a valid recording.');
@@ -34,6 +35,7 @@ export function validateEdits(clips: { id: string; start: number; end: number }[
     if (!clip.id || ids.has(clip.id) || !Number.isFinite(clip.start) || !Number.isFinite(clip.end) || clip.start < 0 || clip.end > duration || clip.end <= clip.start) {
       throw new Error('Each clip must have an end after its start, within the recording, with a unique ID.');
     }
+    if (!meetsMinimumDuration(clip.end - clip.start)) throw new Error('Each clip must be at least 30 seconds long. Include meaningful context or reject the candidate; do not add filler.');
     if (index > 0 && clip.start < ordered[index - 1]!.end) throw new Error('Selected clips must not overlap.');
     ids.add(clip.id);
   }

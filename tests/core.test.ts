@@ -12,9 +12,9 @@ test('VOD parser rejects foreign hosts, credential URLs, non-VOD paths and trail
     assert.throws(() => parseVodId(input));
   }
 });
-test('clip edits allow natural short and long ranges while enforcing recording bounds, IDs and non-overlap', () => {
+test('clip edits require 30 seconds and allow long ranges while enforcing recording bounds, IDs and non-overlap', () => {
   assert.doesNotThrow(() => validateEdits([{ id: 'a', start: 0, end: 30 }, { id: 'b', start: 30, end: 90 }], 90));
-  assert.doesNotThrow(() => validateEdits([{ id: 'short', start: 0, end: 12 }, { id: 'long', start: 12, end: 200 }], 200));
+  assert.throws(() => validateEdits([{ id: 'short', start: 0, end: 12 }, { id: 'long', start: 12, end: 200 }], 200), /30/);
   for (const edits of [
     [{ id: 'a', start: 10, end: 10 }], [{ id: 'a', start: 20, end: 10 }],
     [{ id: 'a', start: 70, end: 100 }], [{ id: 'a', start: -1, end: 30 }],

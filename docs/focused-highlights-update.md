@@ -1,5 +1,7 @@
 # Faster focused highlights
 
+> Historical report. Current behavior is documented in [Narrative duration policy](minimum-duration-update.md): minimum 30 seconds, auto duration without a maximum, five clips by default, and separate destination export review.
+
 The recording dashboard now offers a maximum of five through eight highlights, defaulting to eight. Selection keeps the strongest validated, non-overlapping suggestions above the existing engagement threshold (default 70/100). It can return fewer than five when there is insufficient strong evidence. Clip durations remain AI-chosen from real transcript boundaries; manual adjustments, captions, FFmpeg exports and rights tracking remain available.
 
 ## Actual reduction in analysis work

@@ -21,14 +21,16 @@ import { health } from './health.js';
 import { prepareRecording } from './media.js';
 import { downloadApproved } from './security.js';
 import { parseVodId, renderSchema, analysisSettingsSchema } from '../shared/validation.js';
+import { DurationReviewError } from '../shared/duration.js';
 import type { Job, Transcript } from '../shared/types.js';
 import { retentionSettingsSchema } from '../shared/retention.js';
 import { runProcess } from './process.js';
 import { assessRights, normalizeRights, sourceRightsSchema, platforms, rightsUses } from '../shared/rights.js';
+import { createStoryRouter, createStoryServices, type StoryServices } from './story/routes.js';
 
 const requestAnalysisSettings = analysisSettingsSchema.extend({ clipCount: analysisSettingsSchema.shape.clipCount.removeDefault().optional() });
 const uploadMeta = z.object({ permission: z.literal('true'), vodId: z.string().default(''), vodOffset: z.coerce.number().finite().nonnegative().default(0), rights: z.string().max(20000).optional(), ...requestAnalysisSettings.shape });
-export async function createApp(root = config.dataDir, managerOverride?: JobManager, integrations: { twitch?: TwitchClient; oauth?: TwitchOAuth; analyzer?: TimestampAnalyzer } = {}) {
+export async function createApp(root = config.dataDir, managerOverride?: JobManager, integrations: { twitch?: TwitchClient; oauth?: TwitchOAuth; analyzer?: TimestampAnalyzer; story?: StoryServices } = {}) {
   const store = managerOverride?.store || new JobStore(root); await store.init();
   const manager = managerOverride || new JobManager(store); const twitch = integrations.twitch || new TwitchClient();
   const oauth = integrations.oauth || new TwitchOAuth(); const twitchLive = new TwitchLiveStore(root, twitch); await twitchLive.init();
@@ -48,6 +50,8 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   });
   // Large valid highlight sets must be exportable in one submission.
   app.use('/api/jobs/:id/render', express.json({ limit: '16mb' }));
+  const story = integrations.story || await createStoryServices(root);
+  app.use('/api/story-videos', createStoryRouter(story));
   app.use(express.json({ limit: '128kb' }));
   const transcriptUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: TRANSCRIPT_MAX_BYTES, files: 1, fields: 2, fieldSize: 2048 }, fileFilter: (_req, file, callback) => {
     if (!/\.(srt|vtt|json|txt)$/i.test(file.originalname)) callback(new Error('Attach an SRT, VTT, JSON or timestamped TXT transcript.')); else callback(null, true);
@@ -105,7 +109,7 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
   const upload = multer({ dest: path.join(root, 'uploads'), limits: { fileSize: config.maxBytes, files: 1, fields: 8, fieldSize: 20000 }, fileFilter: (_req, file, cb) => {
     if (!file.originalname.toLowerCase().endsWith('.mp4')) cb(new Error('Upload an MP4 recording.')); else cb(null, true);
   } });
-  app.get('/api/health', async (_req, res) => { res.json({ ...await health(), editorDefaults: { durationMode: 'auto', clipCount: config.clipCount, minEngagementScore: config.minEngagementScore ?? 70 } }); });
+  app.get('/api/health', async (_req, res) => { res.json({ ...await health(), editorDefaults: { durationMode: 'auto', minDuration: config.clipMinDuration, clipCount: config.clipCount, minEngagementScore: config.minEngagementScore ?? 70 } }); });
   app.get('/api/twitch/video', async (req, res) => {
     const input = z.string().min(1).max(512).parse(req.query.input);
     res.json({ vod: await twitch.video(input), access: 'metadata-only', message: 'Public VOD visibility does not grant media access. Upload an authorized recording to begin automatic analysis, or create a clip as an authorized broadcaster/editor.' });
@@ -140,7 +144,7 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
       const media = prepared.media;
       const mediaHash = await hashFile(prepared.file); const id = randomUUID(); await mkdir(store.dir(id), { recursive: true });
       await rename(prepared.file, store.mediaPath(id));
-      const job: Job = { id, name: path.basename(name), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Recording ready', progress: 0, media, mediaHash, source, vodId, vodOffset: meta.vodOffset, highlights: [], outputs: [], warnings: prepared.remuxed ? ['Repackaged MPEG-TS as MP4 without re-encoding the video or audio.'] : [], error: null, renderOptions: null, rights, durationMode: 'auto', clipCount: meta.clipCount ?? config.clipCount, minEngagementScore: meta.minEngagementScore ?? config.minEngagementScore ?? 70, selectionVersion: 2 };
+      const job: Job = { id, name: path.basename(name), createdAt: new Date().toISOString(), status: 'uploaded', stage: 'Recording ready', progress: 0, media, mediaHash, source, vodId, vodOffset: meta.vodOffset, highlights: [], outputs: [], warnings: prepared.remuxed ? ['Repackaged MPEG-TS as MP4 without re-encoding the video or audio.'] : [], error: null, renderOptions: null, rights, durationMode: 'auto', clipCount: meta.clipCount ?? config.clipCount, minEngagementScore: meta.minEngagementScore ?? config.minEngagementScore ?? 70, selectionVersion: 3 };
       await store.save(job); return job;
     } finally { if (prepared.file !== file) await rm(prepared.file, { force: true }); }
   }
@@ -232,9 +236,10 @@ export async function createApp(root = config.dataDir, managerOverride?: JobMana
     if (req.file?.path) void rm(req.file.path, { force: true });
     const message = error instanceof z.ZodError ? 'Invalid request. Check required fields, permission confirmation and timestamp values.' : error instanceof Error ? error.message : 'Request failed.';
     if (res.headersSent) { res.end(); return; }
+    if (error instanceof DurationReviewError) { res.status(409).json({ error: message, code: error.code }); return; }
     const platformError = error instanceof TwitchApiError || error instanceof YouTubeApiError;
     if (platformError && error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
     res.status(platformError ? error.status : message === 'Job not found.' ? 404 : error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: message, ...(platformError && error.retryAfter ? { retryAfter: error.retryAfter } : {}) });
   };
-  app.use(errors); return { app, store, manager, oauth, twitchLive };
+  app.use(errors); return { app, store, manager, oauth, twitchLive, story };
 }

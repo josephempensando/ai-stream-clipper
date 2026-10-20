@@ -2,6 +2,7 @@ import 'dotenv/config';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { analysisSettingsSchema } from '../shared/validation.js';
+import { CLIP_MIN_DURATION, DEFAULT_CLIP_COUNT } from '../shared/duration.js';
 const require = createRequire(import.meta.url);
 const ffmpegStatic: unknown = require('ffmpeg-static');
 const ffprobeStatic: { path: string } = require('ffprobe-static');
@@ -24,7 +25,8 @@ export const config = {
   ollamaModel: process.env.OLLAMA_MODEL || 'llama3.2:3b', vision: process.env.OLLAMA_VISION === 'true',
   ollamaTimeout: positive('OLLAMA_TIMEOUT_MS', 180_000),
   ollamaContextTokens: positive('OLLAMA_NUM_CTX', 4096, 131072),
-  ...analysisSettingsSchema.parse({ durationMode: process.env.DURATION_MODE || 'auto', clipCount: process.env.HIGHLIGHT_COUNT || 8, minEngagementScore: process.env.HIGHLIGHT_MIN_SCORE || 70 }),
+  clipMinDuration: positive('CLIP_MIN_DURATION', CLIP_MIN_DURATION),
+  ...analysisSettingsSchema.parse({ durationMode: process.env.CLIP_DURATION_MODE || process.env.DURATION_MODE || 'auto', clipCount: process.env.CLIP_COUNT || process.env.HIGHLIGHT_COUNT || DEFAULT_CLIP_COUNT, minEngagementScore: process.env.HIGHLIGHT_MIN_SCORE || 70 }),
   highlightContextBudget: positive('HIGHLIGHT_CONTEXT_BUDGET', 24, 96),
   maxHighlightSilenceSeconds: positive('MAX_HIGHLIGHT_SILENCE_SECONDS', 8),
   maxBytes: positive('MAX_UPLOAD_GB', 20, 100) * 1024 ** 3,
@@ -36,6 +38,7 @@ export const config = {
   youtubeApiKey: process.env.YOUTUBE_API_KEY || '',
   transcriptOllamaModel: process.env.TRANSCRIPT_OLLAMA_MODEL || 'llama3.2',
 };
+if (config.clipMinDuration !== CLIP_MIN_DURATION) throw new Error('CLIP_MIN_DURATION must be 30.');
 // This MVP is a local tool, not an authenticated multi-user service.
 if (!['127.0.0.1', '::1', 'localhost'].includes(config.host)) throw new Error('HOST must be loopback for this local MVP.');
 const ollama = new URL(config.ollamaUrl);

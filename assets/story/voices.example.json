@@ -1,0 +1,19 @@
+{
+  "voices": [{
+    "id": "en_US-lessac-medium", "label": "Woman · Lessac · English (US)", "language": "en",
+    "model": "en_US-lessac-medium.onnx", "config": "en_US-lessac-medium.onnx.json",
+    "licenseUrl": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD",
+    "permitted": true
+  }, {
+    "id": "en_US-ryan-medium", "label": "Man · Ryan · English (US)", "language": "en",
+    "model": "en_US-ryan-medium.onnx", "config": "en_US-ryan-medium.onnx.json",
+    "licenseUrl": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ryan/medium/MODEL_CARD",
+    "permitted": true
+  }, {
+    "id": "en_US-lessac-childlike", "label": "Childlike · synthetic style · English (US)", "language": "en",
+    "model": "en_US-lessac-medium.onnx", "config": "en_US-lessac-medium.onnx.json",
+    "licenseUrl": "https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD",
+    "pitchSemitones": 3,
+    "permitted": true
+  }]
+}

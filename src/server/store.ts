@@ -9,6 +9,7 @@ import type { SourceRights } from '../shared/rights.js';
 import { highlightDetails } from '../shared/highlights.js';
 import { config } from './config.js';
 import { analysisSettingsSchema } from '../shared/validation.js';
+import { meetsMinimumDuration } from '../shared/duration.js';
 
 export async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
@@ -26,8 +27,8 @@ export async function writeJson(file: string, value: unknown): Promise<void> {
 export async function readJson<T>(file: string): Promise<T | null> {
   try { return JSON.parse(await readFile(file, 'utf8')) as T; } catch { return null; }
 }
-export async function hashFile(file: string): Promise<string> {
-  const hash = createHash('sha256'); for await (const chunk of createReadStream(file)) hash.update(chunk); return hash.digest('hex');
+export async function hashFile(file: string, signal?: AbortSignal): Promise<string> {
+  const hash = createHash('sha256'); for await (const chunk of createReadStream(file, { ...(signal ? { signal } : {}) })) hash.update(chunk); return hash.digest('hex');
 }
 export class JobStore {
   readonly jobs = new Map<string, Job>();
@@ -51,10 +52,13 @@ export class JobStore {
       const count = analysisSettingsSchema.shape.clipCount.safeParse(job.clipCount ?? config.clipCount);
       const quality = analysisSettingsSchema.shape.minEngagementScore.safeParse(job.minEngagementScore ?? config.minEngagementScore ?? 70);
       job.clipCount = count.success ? count.data : config.clipCount;
-      job.selectionVersion = 2;
+      job.selectionVersion = 3;
       job.minEngagementScore = quality.success ? quality.data ?? 70 : config.minEngagementScore ?? 70;
       delete job.highlightPolicy;
-      job.highlights = job.highlights.map(highlightDetails);
+      const valid = job.highlights.filter(h => meetsMinimumDuration(h.end - h.start));
+      if (valid.length !== job.highlights.length) job.warnings.push('Saved highlights below 30 seconds were excluded. Analyze again to find complete narratives with meaningful context; no filler was added.');
+      job.highlights = valid.map(highlightDetails);
+      if (job.clipEdits) job.clipEdits = job.clipEdits.filter(e => valid.some(h => h.id === e.id) && meetsMinimumDuration(e.end - e.start));
       this.jobs.set(id, job);
       if (['queued', 'analyzing', 'rendering'].includes(job.status)) {
         job.status = 'error'; job.error = 'Server restarted during processing. Retry analysis or rendering; cached work is retained.';

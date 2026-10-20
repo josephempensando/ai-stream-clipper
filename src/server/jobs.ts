@@ -12,6 +12,7 @@ import { highlightDetails } from '../shared/highlights.js';
 import { sampleFrame } from './media.js';
 import { validateEdits, analysisSettingsSchema } from '../shared/validation.js';
 import { config } from './config.js';
+import { DurationReviewError, validateExportDurations } from '../shared/duration.js';
 
 export class JobManager {
   private readonly queue = new Semaphore(1);
@@ -38,7 +39,7 @@ export class JobManager {
     const options = analysisSettingsSchema.parse({ durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount, minEngagementScore: job.minEngagementScore ?? config.minEngagementScore ?? 70, ...settings });
     this.reserve(job); const previous = { ...job };
     job.durationMode = 'auto'; job.clipCount = options.clipCount; job.minEngagementScore = options.minEngagementScore ?? config.minEngagementScore ?? 70;
-    job.selectionVersion = 2;
+    job.selectionVersion = 3;
     if (options.retention) job.retentionSettings = options.retention;
     delete job.highlightPolicy;
     job.status = 'queued'; job.error = null; job.progress = 0; job.outputs = []; job.clipEdits = [];
@@ -66,7 +67,16 @@ export class JobManager {
       const narrative = await analyzeNarrative(h, settings.hookStrategy, frames);
       // Default to natural when a requested loop is not supported; the render
       // still rejects an explicit unsupported loop until the creator changes it.
-      const edl = buildEdl(h, narrative, evidence, { ...settings, ending: settings.ending === 'loop' && !narrative.loop ? 'natural' : settings.ending });
+      let edl;
+      const applicable = { ...settings, ending: settings.ending === 'loop' && !narrative.loop ? 'natural' as const : settings.ending };
+      try { edl = buildEdl(h, narrative, evidence, applicable); }
+      catch (error) {
+        if (!(error instanceof DurationReviewError)) throw error;
+        // Keep the selected meaningful story intact for review. Export still
+        // requires the creator to disable pause shortening or revise boundaries.
+        edl = buildEdl(h, narrative, evidence, { ...applicable, trimPauses: false });
+        job.warnings.push(`${h.title}: ${error.message}`);
+      }
       h.retention = { narrative, edl };
       if (!narrative.coherent) job.warnings.push(`${h.title}: incomplete hook/payoff; ranked below coherent narratives. ${narrative.reason}`);
       if (!(h.cues || []).some(c => c.words?.length)) job.warnings.push(`${h.title}: cached transcript has no word timings; captions will remain plain. Re-transcription is required for karaoke.`);
@@ -106,17 +116,25 @@ export class JobManager {
     if (!['review', 'complete', 'error'].includes(job.status) || !job.highlights.length) throw new Error('Analyze this recording before rendering.');
     validateEdits(edits, job.media.duration);
     if (edits.some(e => !job.highlights.some(h => h.id === e.id))) throw new Error('Unknown highlight ID.');
+    if (!options.retention) validateExportDurations(edits.map(e => ({ id: e.id, duration: e.end - e.start })), options.destination);
     this.reserve(job); const previous = { ...job };
-    job.status = 'rendering'; job.outputs = []; job.error = null; job.renderOptions = options;
-    job.clipEdits = edits;
-    if (options.retention) job.retentionSettings = options.retention;
     let transcript: Transcript;
     try {
       const data = await readJson<Transcript>(path.join(this.store.dir(id), 'transcript.json'));
       if (!data) throw new Error('Transcript missing. Retry analysis.');
-      transcript = data; await this.progress(job, 'Waiting to render', 0);
-      if (options.retention) for (const edit of edits) prepareRetention(job, edit, options, transcript);
-    } catch (error) { this.reserved.delete(job.id); Object.assign(job, previous); throw error; }
+      transcript = data;
+      const durations = edits.map(edit => ({ id: edit.id, duration: options.retention ? prepareRetention(job, edit, options, transcript).edl.duration : edit.end - edit.start }));
+      validateExportDurations(durations, options.destination);
+      job.status = 'rendering'; job.outputs = []; job.error = null; job.renderOptions = options;
+      job.clipEdits = edits;
+      if (options.retention) job.retentionSettings = options.retention;
+      await this.progress(job, 'Waiting to render', 0);
+    } catch (error) {
+      this.reserved.delete(job.id); Object.assign(job, previous);
+      if (!previous.clipEdits) delete job.clipEdits;
+      if (!previous.retentionSettings) delete job.retentionSettings;
+      throw error;
+    }
     this.schedule(job, async () => {
       job.outputs = await renderClips(job, this.store.mediaPath(id), path.join(this.store.dir(id), 'exports'), edits, options, transcript, (s, p) => this.progress(job, s, p));
       job.status = 'complete'; await this.progress(job, 'Exports ready', 100);

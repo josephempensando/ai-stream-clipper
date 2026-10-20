@@ -2,24 +2,25 @@ import { useEffect, useState } from 'react';
 import { ArrowDownToLine, RefreshCw, Sparkles } from 'lucide-react';
 import type { ClipEdit, Job, Transcript } from '../shared/types.js';
 import { beatNames } from '../shared/retention.js';
-import type { AudioAsset, CaptionStyle, ClipRetention, RetentionSettings } from '../shared/retention.js';
+import type { AudioAsset, ClipRetention, RetentionSettings } from '../shared/retention.js';
 import { api } from './api.js';
 import './retention.css';
+import CaptionSettings from './CaptionSettings.js';
+import { CLIP_MIN_DURATION, meetsMinimumDuration } from '../shared/duration.js';
 
 interface Props {
   job: Job | null; settings: RetentionSettings; onSettings: (value: RetentionSettings) => void;
   edits: Record<string, ClipEdit>; onEdit: (edit: ClipEdit) => void; selected: string[];
-  onJob: (job: Job) => void; onRegenerate: () => void; onExport: () => void; disabled: boolean;
+  onJob: (job: Job) => void; onRegenerate: () => void; onExport: () => void; disabled: boolean; exportDisabled: boolean;
 }
 const stamp = (n: number) => `${n.toFixed(2)}s`;
-export default function RetentionEditor({ job, settings, onSettings, edits, onEdit, selected, onJob, onRegenerate, onExport, disabled }: Props) {
+export default function RetentionEditor({ job, settings, onSettings, edits, onEdit, selected, onJob, onRegenerate, onExport, disabled, exportDisabled }: Props) {
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [message, setMessage] = useState(''); const [uploading, setUploading] = useState(false);
   const [kind, setKind] = useState<'music' | 'sfx'>('music'); const [license, setLicense] = useState<'owned' | 'licensed'>('owned');
   const [provenance, setProvenance] = useState(''); const [permission, setPermission] = useState(false);
   const [focus, setFocus] = useState('');
   const set = <K extends keyof RetentionSettings>(key: K, value: RetentionSettings[K]) => onSettings({ ...settings, [key]: value });
-  const caption = <K extends keyof CaptionStyle>(key: K, value: CaptionStyle[K]) => set('captions', { ...settings.captions, [key]: value });
   useEffect(() => {
     let active = true; setTranscript(null);
     if (job?.highlights.length && !['queued', 'analyzing'].includes(job.status)) void api<Transcript>(`/jobs/${job.id}/transcript`).then(t => { if (active) setTranscript(t); }).catch(e => { if (active) setMessage(String(e)); });
@@ -48,7 +49,7 @@ export default function RetentionEditor({ job, settings, onSettings, edits, onEd
   const output = job?.outputs.find(o => o.id === h?.id);
   return <section className="panel retention-panel" aria-label="AI Retention Editor">
     <div className="panel-title"><Sparkles size={19} /><h2>AI Retention Editor</h2><span className="panel-meta">SOURCE → STORY → EDIT</span></div>
-    <p>Keep the full thought. Let the source decide the length. Review every draft before sharing.</p>
+    <p>Keep the full thought. Minimum 30 seconds; AI chooses the natural ending with no maximum. Review every draft before sharing.</p>
     <fieldset disabled={disabled || uploading}>
       <div className="retention-controls">
         <label className="checkbox"><input type="checkbox" checked={settings.autoEdit} onChange={e => set('autoEdit', e.target.checked)} />Auto Edit</label>
@@ -58,17 +59,7 @@ export default function RetentionEditor({ job, settings, onSettings, edits, onEd
         <label className="checkbox"><input type="checkbox" checked={settings.patternInterrupts} onChange={e => set('patternInterrupts', e.target.checked)} />Subtle pattern interrupts</label>
         <label className="checkbox"><input type="checkbox" checked={settings.trimPauses} onChange={e => set('trimPauses', e.target.checked)} />Shorten approved pauses</label>
       </div>
-      <details open><summary>Animated captions</summary><div className="retention-controls">
-        <label className="checkbox"><input type="checkbox" checked={settings.captions.enabled} onChange={e => caption('enabled', e.target.checked)} />Captions</label>
-        <label>Animation<select value={settings.captions.animation} onChange={e => caption('animation', e.target.value as CaptionStyle['animation'])}><option value="karaoke">Karaoke · actual word timings</option><option value="fade">Subtle fade</option><option value="none">Plain</option></select></label>
-        <label>Font<select value={settings.captions.font} onChange={e => caption('font', e.target.value as CaptionStyle['font'])}>{['Arial', 'Verdana', 'Trebuchet MS'].map(f => <option key={f}>{f}</option>)}</select></label>
-        <label>Font size<input type="number" min="32" max="80" value={settings.captions.size} onChange={e => caption('size', Number(e.target.value))} /></label>
-        <label>Text color<input type="color" value={settings.captions.color} onChange={e => caption('color', e.target.value)} /></label>
-        <label>Highlight color<input type="color" value={settings.captions.highlight} onChange={e => caption('highlight', e.target.value)} /></label>
-        <label>Outline<input type="number" min="0" max="6" value={settings.captions.outline} onChange={e => caption('outline', Number(e.target.value))} /></label>
-        <label>Position<select value={settings.captions.position} onChange={e => caption('position', e.target.value as CaptionStyle['position'])}><option value="lower">Lower safe area</option><option value="middle">Middle</option><option value="upper">Upper safe area</option></select></label>
-        <label>Words per group<input type="number" min="2" max="8" value={settings.captions.wordsPerGroup} onChange={e => caption('wordsPerGroup', Number(e.target.value))} /></label>
-      </div><small>Margins leave space at the bottom and right. Check the destination app before publishing. Older segment-only transcripts use plain captions.</small></details>
+      <details open><summary>Animated captions</summary><CaptionSettings value={settings.captions} onChange={value => set('captions', value)} disabled={disabled || uploading} /><small>Margins leave space at the bottom and right. Check the destination app before publishing. Older segment-only transcripts use plain captions.</small></details>
       <details><summary>Sound design & licensed audio</summary><div className="retention-controls">
         <label className="checkbox"><input type="checkbox" checked={settings.normalize} onChange={e => set('normalize', e.target.checked)} />Normalize dialogue</label>
         <label>Dialogue target (LUFS)<input type="number" min="-24" max="-12" value={settings.dialogueLufs} onChange={e => set('dialogueLufs', Number(e.target.value))} /></label>
@@ -83,12 +74,12 @@ export default function RetentionEditor({ job, settings, onSettings, edits, onEd
     </fieldset>
     {(uploading || message) && <p role="status">{uploading ? 'Uploading and checking audio…' : message}</p>}
     {!!job?.highlights.length && <>
-      <div className="retention-actions"><label>Review clip<select aria-label="Retention clip" value={h?.id || ''} onChange={e => setFocus(e.target.value)}>{job.highlights.map(h => <option key={h.id} value={h.id}>{h.title}</option>)}</select></label><button className="button secondary" disabled={disabled} onClick={onRegenerate}><RefreshCw size={15} />Regenerate</button><button className="button primary" disabled={disabled || !selected.length} onClick={onExport}><ArrowDownToLine size={15} />Export selected</button></div>
+      <div className="retention-actions"><label>Review clip<select aria-label="Retention clip" value={h?.id || ''} onChange={e => setFocus(e.target.value)}>{job.highlights.map(h => <option key={h.id} value={h.id}>{h.title}</option>)}</select></label><button className="button secondary" disabled={disabled} onClick={onRegenerate}><RefreshCw size={15} />Regenerate</button><button className="button primary" disabled={disabled || exportDisabled || !selected.length} onClick={onExport}><ArrowDownToLine size={15} />Export selected</button></div>
       {h && edit && <div className="retention-review">
-        <div className="retention-controls"><label>Selected start (seconds)<input type="number" list="retention-cue-starts" min={0} step="0.01" value={edit.start} disabled={disabled} onChange={e => onEdit({ ...edit, start: Number(e.target.value) })} /></label><label>Selected end (seconds)<input type="number" list="retention-cue-ends" min={0} max={job.media.duration} step="0.01" value={edit.end} disabled={disabled} onChange={e => onEdit({ ...edit, end: Number(e.target.value) })} /></label><span>{stamp(edit.end - edit.start)} source · {h.retention ? `${stamp(h.retention.edl.duration)} planned` : 'Regenerate for narrative & EDL'}</span></div>
+        <div className="retention-controls"><label>Selected start (seconds)<input type="number" list="retention-cue-starts" min={0} max={Math.max(0, edit.end - CLIP_MIN_DURATION)} aria-invalid={!meetsMinimumDuration(edit.end - edit.start)} step="0.01" value={edit.start} disabled={disabled} onChange={e => onEdit({ ...edit, start: Number(e.target.value) })} /></label><label>Selected end (seconds)<input type="number" list="retention-cue-ends" min={edit.start + CLIP_MIN_DURATION} aria-invalid={!meetsMinimumDuration(edit.end - edit.start)} max={job.media.duration} step="0.01" value={edit.end} disabled={disabled} onChange={e => onEdit({ ...edit, end: Number(e.target.value) })} /></label><span>{stamp(edit.end - edit.start)} source · {h.retention ? `${stamp(h.retention.edl.duration)} planned` : 'Regenerate for narrative & EDL'}</span></div>
         <datalist id="retention-cue-starts">{transcript?.segments.map((c, i) => <option key={i} value={c.start}>{c.text.slice(0, 70)}</option>)}</datalist>
         <datalist id="retention-cue-ends">{transcript?.segments.map((c, i) => <option key={i} value={c.end}>{c.text.slice(0, 70)}</option>)}</datalist>
-        <small>Timing suggestions use complete source transcript boundaries. Retain the full question and answer, then Regenerate to reassess the edited interval.</small>
+        <p>AI-selected duration: {stamp(h.aiSelectedDuration ?? h.end - h.start)}. Minimum 30 seconds, including after pause shortening.</p>{!meetsMinimumDuration(edit.end - edit.start) && <p role="alert">This edit is below 30 seconds. Review meaningful context before export.</p>}<small>Timing suggestions use complete source transcript boundaries. Retain the full question and answer, then Regenerate to reassess the edited interval.</small>
         {h.retention && <><p className={h.retention.narrative.coherent ? 'ready' : 'unavailable'}>{h.retention.narrative.coherent ? 'Model assessment: complete narrative' : 'Model assessment: incomplete narrative · ranked lower'}</p><div className="narrative-grid">{beatNames.map(name => { const beat = h.retention!.narrative.beats[name]; return <article key={name}><strong>{name === 'ending' ? 'Natural ending' : name}</strong>{beat ? <><small>{stamp(beat.start)} → {stamp(beat.end)}</small><blockquote>{beat.quote}</blockquote></> : <p>No supported beat identified.</p>}</article>; })}</div><p>Opening 1–3 seconds: {h.retention.narrative.firstSeconds.quote || 'No word-level transcript available. Review the source opening.'}</p><p>{h.retention.narrative.reason}</p><details><summary>Exact edit decisions & recommendations</summary>{h.retention.edl.recommendations.map((r, i) => <p key={i}>{r}</p>)}<table><thead><tr><th>Source time</th><th>Edit</th><th>Reason</th></tr></thead><tbody>{h.retention.edl.actions.map((a, i) => <tr key={i}><td>{stamp(a.start)}–{stamp(a.end)}</td><td>{a.type}</td><td>{a.reason}</td></tr>)}</tbody></table><small>These are analysis-time decisions. Export writes the final EDL with your controls and overrides.</small></details></>}
         <div className="retention-controls"><label className="checkbox"><input type="checkbox" checked={edit.adjustments?.patternInterrupts ?? settings.patternInterrupts} disabled={disabled} onChange={e => adjust({ patternInterrupts: e.target.checked })} />Pattern interrupts for this clip</label><label>Clip ending<select aria-label="Clip ending" disabled={disabled} value={edit.adjustments?.ending || settings.ending} onChange={e => adjust({ ending: e.target.value as RetentionSettings['ending'] })}><option value="natural">Natural payoff</option><option value="loop" disabled={!h.retention?.narrative.loop}>Seamless loop</option><option value="cta">One CTA</option></select></label></div>
         <div className="retention-previews"><div><strong>Before · source</strong><video key={`${job.id}/${h.id}/${h.start}`} controls preload="metadata" src={`/api/jobs/${job.id}/media#t=${edit.start},${edit.end}`} onLoadedMetadata={e => { e.currentTarget.currentTime = edit.start; }} onTimeUpdate={e => { if (e.currentTarget.currentTime >= edit.end) e.currentTarget.pause(); }} /></div><div><strong>After · latest export</strong>{output && job.status === 'complete' ? <video controls preload="metadata" src={`/api/jobs/${job.id}/preview/${output.file}?v=${job.progress}`} /> : <p>Export to preview the actual edited video.</p>}</div></div>

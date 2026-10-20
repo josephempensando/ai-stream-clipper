@@ -10,9 +10,9 @@ const cues: Segment[] = [
   { start: 10, end: 12, text: 'Why did it fail?', words: [{ start: 10, end: 10.4, word: 'Why' }, { start: 10.5, end: 10.8, word: 'did' }, { start: 11, end: 11.2, word: 'it' }, { start: 11.3, end: 12, word: 'fail?' }] },
   { start: 14, end: 18, text: 'We checked the cable.' },
   { start: 18, end: 22, text: 'Then we found a loose connector!' },
-  { start: 22, end: 25, text: 'Tightening it fixed the problem.' },
+  { start: 22, end: 45, text: 'Tightening it fixed the problem.' },
 ];
-const highlight: Highlight = { id: 'story', start: 10, end: 25, cues, transcript: cues.map(c => c.text).join(' '), frameTimes: [], evidence: [], heuristicScore: 0, score: 80, title: 'Cable repair', explanation: 'Source explanation.' };
+const highlight: Highlight = { id: 'story', start: 10, end: 45, cues, transcript: cues.map(c => c.text).join(' '), frameTimes: [], evidence: [], heuristicScore: 0, score: 80, title: 'Cable repair', explanation: 'Source explanation.' };
 const raw = { hook: { first: 0, last: 0 }, setup: { first: 1, last: 1 }, escalation: { first: 2, last: 2 }, payoff: { first: 3, last: 3 }, ending: { first: 3, last: 3 }, reason: 'Question answered by the actual repair.', loop: false, loopReason: 'The answer ends the explanation.', emphasis: [2], pauseCuts: [0] };
 const settings = retentionSettingsSchema.parse({ autoEdit: true });
 
@@ -26,8 +26,8 @@ test('narrative references derive quotes and reject invented or out-of-order evi
   assert.equal(validateNarrative({ ...raw, payoff: null }, highlight).coherent, false);
 });
 
-test('natural durations preserve short reactions, podcast Q&A, long stories and low energy footage', () => {
-  for (const [duration, text] of [[2, 'Wow! It worked!'], [95, 'Why? Here is the complete answer.'], [205, 'This is the whole story and its conclusion.'], [17, 'A quiet explanation.']] as const) {
+test('natural durations preserve complete reactions, podcast Q&A, long stories and low energy footage', () => {
+  for (const [duration, text] of [[30, 'Wow! It worked!'], [95, 'Why? Here is the complete answer.'], [205, 'This is the whole story and its conclusion.'], [37, 'A quiet explanation.']] as const) {
     const h = { ...highlight, start: 0, end: duration, cues: [{ start: 0, end: duration, text }] };
     const n = validateNarrative({ ...raw, hook: { first: 0, last: 0 }, setup: null, escalation: null, payoff: { first: 0, last: 0 }, ending: { first: 0, last: 0 }, emphasis: [], pauseCuts: [] }, h);
     assert.equal(buildEdl(h, n, [], settings).duration, duration);
@@ -37,8 +37,8 @@ test('natural durations preserve short reactions, podcast Q&A, long stories and 
 test('EDL cuts approved silence only, retains pause handles and uses real scene/emphasis evidence', () => {
   const n = validateNarrative(raw, highlight);
   const edl = buildEdl(highlight, n, [{ time: 19, scene: true, loudness: -10 }], settings);
-  assert.deepEqual(edl.keep, [{ start: 10, end: 12.25 }, { start: 13.75, end: 25 }]);
-  assert.equal(edl.duration, 13.5);
+  assert.deepEqual(edl.keep, [{ start: 10, end: 12.25 }, { start: 13.75, end: 45 }]);
+  assert.equal(edl.duration, 33.5);
   assert.ok(edl.actions.some(a => a.type === 'punch-in' && a.start === 18));
   assert.equal(buildEdl(highlight, n, [], { ...settings, patternInterrupts: false }).actions.some(a => a.type === 'punch-in'), false);
   assert.throws(() => buildEdl(highlight, n, [], { ...settings, ending: 'loop' }), /loop/i);

@@ -36,14 +36,14 @@ test('cutting a long passage keeps the original caption timing', () => {
   assert.match(cut, /--> 00:00:04,000/);
 });
 
-test('actual vertical export draws small captions at bottom center', { timeout: 90_000 }, async () => {
+test('actual vertical export draws small captions at bottom center', { timeout: 180_000 }, async () => {
   const root = path.resolve('test-artifacts', `subtitles-${randomUUID()}`);
   await mkdir(root, { recursive: true });
   const source = path.join(root, 'black.mp4');
-  await ffmpeg(['-f', 'lavfi', '-i', 'color=c=black:s=160x90:r=5:d=2', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', source]);
-  const highlight = { id: 'caption', start: 0, end: 2, title: 'Caption test', explanation: 'Generated fixture', score: 90, heuristicScore: 0, evidence: [], transcript: paragraph, frameTimes: [] };
-  const job: Job = { id: 'caption-test', name: 'Generated black recording', createdAt: new Date().toISOString(), status: 'review', stage: '', progress: 100, media: { duration: 2, width: 160, height: 90, hasAudio: true }, mediaHash: 'test', source: 'upload', vodId: null, vodOffset: 0, highlights: [highlight], outputs: [], warnings: [], error: null, renderOptions: null };
-  await renderClips(job, source, root, [{ id: highlight.id, start: 0, end: 2 }], { layout: 'crop', cropX: 0.5, subtitles: true }, { segments: [{ start: 0, end: 24, text: paragraph }], language: 'en', model: 'test-double' }, async () => {});
+  await ffmpeg(['-f', 'lavfi', '-i', 'color=c=black:s=160x90:r=5:d=30', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '30', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', source]);
+  const highlight = { id: 'caption', start: 0, end: 30, title: 'Caption test', explanation: 'Generated fixture', score: 90, heuristicScore: 0, evidence: [], transcript: paragraph, frameTimes: [] };
+  const job: Job = { id: 'caption-test', name: 'Generated black recording', createdAt: new Date().toISOString(), status: 'review', stage: '', progress: 100, media: { duration: 30, width: 160, height: 90, hasAudio: true }, mediaHash: 'test', source: 'upload', vodId: null, vodOffset: 0, highlights: [highlight], outputs: [], warnings: [], error: null, renderOptions: null };
+  await renderClips(job, source, root, [{ id: highlight.id, start: 0, end: 30 }], { layout: 'crop', cropX: 0.5, subtitles: true }, { segments: [{ start: 0, end: 24, text: paragraph }], language: 'en', model: 'test-double' }, async () => {});
   const lines: string[] = [];
   await runProcess(config.ffmpeg, ['-hide_banner', '-ss', '0.5', '-i', path.join(root, 'clip-01.mp4'), '-vf', 'bbox=min_val=180', '-frames:v', '1', '-an', '-f', 'null', '-'], { onLine: line => lines.push(line) });
   const bounds = lines.join('\n').match(/x1:(\d+) x2:(\d+) y1:(\d+) y2:(\d+) w:(\d+) h:(\d+)/);

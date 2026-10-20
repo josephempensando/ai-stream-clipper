@@ -3,6 +3,7 @@ import { config } from './config.js';
 import type { Evidence, Highlight } from '../shared/types.js';
 import { beatNames } from '../shared/retention.js';
 import type { Narrative, RetentionEdl, RetentionSettings } from '../shared/retention.js';
+import { validateExportDurations } from '../shared/duration.js';
 
 const reference = z.object({ first: z.number().int().nonnegative(), last: z.number().int().nonnegative() }).strict().nullable();
 export const narrativeSchema = z.object({
@@ -82,6 +83,7 @@ export function buildEdl(h: Highlight, n: Narrative, evidence: Evidence[], setti
   }
   edl.keep.push({ start: cursor, end: h.end });
   edl.duration = edl.keep.reduce((sum, s) => sum + s.end - s.start, 0);
+  validateExportDurations([{ id: h.id, duration: edl.duration }]);
   edl.actions.push(...edl.keep.map(s => ({ type: 'keep' as const, ...s, reason: 'Preserve chronological source dialogue and essential context.' })));
   if (settings.autoEdit && settings.patternInterrupts) {
     let previous = h.start;

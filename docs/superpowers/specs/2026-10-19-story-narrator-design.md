@@ -1,7 +1,7 @@
 # Story Narrator design
 
 Date: 2026-10-19
-Status: architecture approved; detailed specification awaiting user review
+Status: architecture and detailed specification approved; implementation plan awaiting review
 
 ## Intent and success criteria
 
@@ -99,7 +99,9 @@ With subtitles enabled, run local Whisper with actual word timestamps against th
 
 Align the original script tokens monotonically to recognized words with Unicode-aware normalization for case, punctuation and explicit equivalent number/contraction forms. Keep the user's spelling and punctuation in captions. Mapping must account for every script token exactly once and exclude hallucinated recognition words. Preserve timestamp spans for supported many-token/one-token equivalences; do not distribute unmatched words across guessed time intervals.
 
-If a chunk cannot be aligned completely, retry that chunk once with the exact script prompt. If still unresolved, stop the subtitled attempt with `CAPTION_ALIGNMENT_REVIEW_REQUIRED`, showing the affected excerpt and a retry/disable-subtitles action. Retain the script and validated inputs. Do not produce a supposedly synchronized result with omitted text, invented speech or fabricated word timings. Disabling subtitles permits narration/video generation without requiring Whisper alignment.
+If a chunk cannot be aligned completely, retry that chunk once with bounded proper-name vocabulary copied from the source. Use deterministic independent decoding windows and carry those hints into each window. A full-script continuation prompt was replaced after live evidence showed it can produce repeated/hallucinated text and zero-length words. Equivalent AM/PM clock formatting is canonicalized without changing caption spelling. If still unresolved, stop the subtitled attempt with `CAPTION_ALIGNMENT_REVIEW_REQUIRED`, showing the affected chunk and nearby word with a retry/disable-subtitles action. Retain the script and validated inputs. Do not produce a supposedly synchronized result with omitted text, invented speech or fabricated word timings. Disabling subtitles permits narration/video generation without requiring Whisper alignment.
+
+For known Piper-generated narration, an ASR text mismatch can also be refined with Whisper cross-attention/DTW alignment conditioned on the exact supplied text and real audio. Recognition anchors only partition supported windows below 30 seconds; final timing is model-derived, never evenly distributed. Require sufficient anchor coverage, positive ordered spans, non-silent audio and word confidence, then run the same complete-script validation. Record a pronunciation-review warning when this path succeeds. Unresolved/unsupported alignment remains a review error; recording-source transcription does not use this refinement.
 
 Reuse existing safe ASS escaping, font/style allowlists, readable short groups, punctuation breaks, duration-aware grouping and mobile-safe margins. Build a chronological identity timeline for the entire narration instead of calling clipping/retention duration validation. Highlighting uses verified word timestamps. Export SRT plus alignment metadata for successful captioned attempts. Manual preview remains necessary to assess pronunciations and narrative meaning; recognition matching is not proof of semantic correctness.
 
