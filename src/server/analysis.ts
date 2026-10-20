@@ -1,5 +1,6 @@
 import type { Candidate, Evidence, Highlight, Segment } from '../shared/types.js';
 import { MAX_HIGHLIGHT_COUNT } from '../shared/validation.js';
+import { CLIP_MIN_DURATION, DEFAULT_CLIP_COUNT, meetsMinimumDuration } from '../shared/duration.js';
 export function offsetSegments(segments: Segment[], offset: number, duration: number): Segment[] {
   return segments.map(s => ({ start: Math.max(0, s.start + offset), end: Math.min(duration, s.end + offset), text: s.text.trim(), ...(s.words ? { words: s.words.map(w => ({ ...w, start: Math.max(0, w.start + offset), end: Math.min(duration, w.end + offset) })).filter(w => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start) } : {}) }))
     .filter(s => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start && s.text.length > 0);
@@ -95,12 +96,13 @@ export function buildCandidateContexts(segments: Segment[], evidence: Evidence[]
 export function buildCandidates(segments: Segment[], evidence: Evidence[], duration: number): Candidate[] {
   return buildCandidateContexts(segments, evidence, duration).map(context => context.materialize());
 }
-export function selectBestHighlights(highlights: Highlight[], count: number | 'all' = MAX_HIGHLIGHT_COUNT, minEngagementScore = 0): Highlight[] {
+export function selectBestHighlights(highlights: Highlight[], count: number | 'all' = DEFAULT_CLIP_COUNT, minEngagementScore = 0, minimumDuration = CLIP_MIN_DURATION): Highlight[] {
   const selected: Highlight[] = [];
   const limit = count === 'all' ? MAX_HIGHLIGHT_COUNT : Math.min(MAX_HIGHLIGHT_COUNT, count);
   for (const highlight of [...highlights].sort((a, b) => b.score - a.score)) {
     if (selected.length >= limit) break;
     if (highlight.score < minEngagementScore) continue;
+    if (!meetsMinimumDuration(highlight.end - highlight.start, minimumDuration)) continue;
     if (selected.every(h => highlight.end <= h.start || highlight.start >= h.end)) selected.push(highlight);
   }
   return selected;

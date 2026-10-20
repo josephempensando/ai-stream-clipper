@@ -6,15 +6,15 @@ import { runProcess, Semaphore } from './process.js';
 import type { Evidence, MediaInfo } from '../shared/types.js';
 
 export const ffmpegQueue = new Semaphore(config.ffmpegConcurrency);
-export function ffmpeg(args: string[], onLine?: (line: string) => void): Promise<string> {
-  return ffmpegQueue.run(() => runProcess(config.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', ...args], onLine ? { onLine } : {}));
+export function ffmpeg(args: string[], onLine?: (line: string) => void, signal?: AbortSignal): Promise<string> {
+  return ffmpegQueue.run(() => runProcess(config.ffmpeg, ['-hide_banner', '-nostdin', '-y', '-protocol_whitelist', 'file,pipe', ...args], { ...(onLine ? { onLine } : {}), ...(signal ? { signal } : {}) }), signal);
 }
 const probeSchema = z.object({
   format: z.object({ duration: z.coerce.number().finite().positive(), format_name: z.string() }),
   streams: z.array(z.object({ codec_type: z.string(), width: z.number().optional(), height: z.number().optional() })),
 });
-async function inspectMedia(file: string): Promise<{ media: MediaInfo; formats: string[] }> {
-  const data = probeSchema.parse(JSON.parse(await runProcess(config.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_format', '-show_streams', '-of', 'json', file], { timeout: 60_000 })));
+async function inspectMedia(file: string, signal?: AbortSignal): Promise<{ media: MediaInfo; formats: string[] }> {
+  const data = probeSchema.parse(JSON.parse(await runProcess(config.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_format', '-show_streams', '-of', 'json', file], { timeout: 60_000, ...(signal ? { signal } : {}) })));
   const video = data.streams.find(s => s.codec_type === 'video');
   if (!video) {
     throw new Error(data.streams.some(s => s.codec_type === 'audio')
@@ -27,8 +27,8 @@ async function inspectMedia(file: string): Promise<{ media: MediaInfo; formats: 
 function requireMp4(formats: string[]): void {
   if (!formats.includes('mp4')) throw new Error(`Detected ${formats.join(',')} container. Convert the video to MP4 and try again; changing the filename extension does not convert the file.`);
 }
-export async function probe(file: string): Promise<MediaInfo> {
-  const inspected = await inspectMedia(file); requireMp4(inspected.formats); return inspected.media;
+export async function probe(file: string, signal?: AbortSignal): Promise<MediaInfo> {
+  const inspected = await inspectMedia(file, signal); requireMp4(inspected.formats); return inspected.media;
 }
 export async function prepareRecording(file: string): Promise<{ file: string; media: MediaInfo; remuxed: boolean }> {
   const inspected = await inspectMedia(file);

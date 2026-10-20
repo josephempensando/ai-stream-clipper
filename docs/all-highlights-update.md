@@ -1,5 +1,7 @@
 # All qualifying highlights
 
+> Historical report. Current behavior is documented in [Narrative duration policy](minimum-duration-update.md): minimum 30 seconds, auto duration without a maximum, five clips by default, and separate destination export review.
+
 Historical report. The unlimited results and exhaustive cue-ranking policy below are superseded by [Faster focused highlights](focused-highlights-update.md).
 
 The dashboard now requests `clipCount: "all"`. It retains every validated, non-overlapping model suggestion meeting the minimum engagement score instead of taking five or limiting exports to twenty. The default score threshold is 70/100 and can be changed in the existing Highlight recipe panel. Scores are subjective model judgments, not probabilities or guarantees of quality. AI-selected durations and manual start/end adjustments remain available.

@@ -5,16 +5,16 @@ import { analysisSettingsSchema } from '../src/shared/validation.js';
 import type { CandidateContext } from '../src/server/analysis.js';
 import type { Highlight } from '../src/shared/types.js';
 
-test('focused analysis defaults to eight and maps legacy all requests to the new cap', () => {
-  assert.equal(analysisSettingsSchema.parse({}).clipCount, 8);
+test('focused analysis defaults to five and maps legacy all requests to the new cap', () => {
+  assert.equal(analysisSettingsSchema.parse({}).clipCount, 5);
   assert.equal(analysisSettingsSchema.parse({ clipCount: 'all' }).clipCount, 8);
   assert.equal(analysisSettingsSchema.parse({ clipCount: 5 }).clipCount, 5);
   assert.equal(analysisSettingsSchema.safeParse({ clipCount: 9 }).success, false);
 });
 
-test('default selection keeps at most eight strong moments without filling missing slots', () => {
-  const rows: Highlight[] = Array.from({ length: 30 }, (_, i) => ({ id: String(i), start: i * 20, end: i * 20 + 15, score: 99 - i, title: 'Complete moment', explanation: 'Setup and conclusion.', heuristicScore: 0, evidence: [], transcript: '', frameTimes: [] }));
-  assert.equal(analysis.selectBestHighlights(rows).length, 8);
+test('default selection keeps at most five strong moments without filling missing slots', () => {
+  const rows: Highlight[] = Array.from({ length: 30 }, (_, i) => ({ id: String(i), start: i * 40, end: i * 40 + 30, score: 99 - i, title: 'Complete moment', explanation: 'Setup and conclusion.', heuristicScore: 0, evidence: [], transcript: '', frameTimes: [] }));
+  assert.equal(analysis.selectBestHighlights(rows).length, 5);
   assert.deepEqual(analysis.selectBestHighlights(rows, 5, 98).map(h => h.id), ['0', '1']);
 });
 

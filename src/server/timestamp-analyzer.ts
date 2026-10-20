@@ -17,11 +17,11 @@ export interface TranscriptAttachment { name: string; text: string; permission: 
 type RankTranscript = (candidates: Candidate[], onWarning?: (warning: string) => void) => Promise<Highlight[]>;
 const selection = (highlights: TimestampHighlight[]) => {
   const byId = new Map(highlights.map(h => [h.id, h]));
-  return selectBestHighlights(highlights.map(h => ({ id: h.id, start: h.start, end: h.end, score: h.score, heuristicScore: 0, title: h.title, explanation: h.description, evidence: [], transcript: h.transcript || '', frameTimes: [] }))).map(h => byId.get(h.id)!);
+  return selectBestHighlights(highlights.map(h => ({ id: h.id, start: h.start, end: h.end, score: h.score, heuristicScore: 0, title: h.title, explanation: h.description, evidence: [], transcript: h.transcript || '', frameTimes: [] })), config.clipCount, 0, 0).map(h => byId.get(h.id)!);
 };
 export class TimestampAnalyzer {
   private activeTranscript = false;
-  constructor(private readonly twitch = new TwitchClient(), private readonly youtube = new YouTubeClient(), private readonly root = config.dataDir, private readonly rank: RankTranscript = (cs, onWarning) => rankBatch(cs, [], { model: config.transcriptOllamaModel, transcriptOnly: true, ...(onWarning ? { onWarning } : {}) })) {}
+  constructor(private readonly twitch = new TwitchClient(), private readonly youtube = new YouTubeClient(), private readonly root = config.dataDir, private readonly rank: RankTranscript = (cs, onWarning) => rankBatch(cs, [], { model: config.transcriptOllamaModel, transcriptOnly: true, durationMode: 'auto', ...(onWarning ? { onWarning } : {}) })) {}
   async analyze(input: string, attachment?: TranscriptAttachment): Promise<TimestampAnalysis> {
     const parsed = parseLivestreamSource(input);
     if (parsed.platform === 'twitch' && !attachment) return this.twitchHighlights(parsed.id);
@@ -39,36 +39,43 @@ export class TimestampAnalyzer {
     if (this.activeTranscript) throw new TwitchApiError('Another transcript is being ranked locally. Wait for it to finish before retrying.', 429, 10);
     this.activeTranscript = true;
     try {
-      const key = createHash('sha256').update(JSON.stringify({ version: 'transcript-shortlist-v1', budget: config.highlightContextBudget, platform: source.platform, video: source.id, duration: source.duration, segments: transcript.segments, model: config.transcriptOllamaModel, maxSilenceSeconds: config.maxHighlightSilenceSeconds })).digest('hex');
+      const key = createHash('sha256').update(JSON.stringify({ version: 'transcript-shortlist-v2-min-30', budget: config.highlightContextBudget, platform: source.platform, video: source.id, duration: source.duration, segments: transcript.segments, model: config.transcriptOllamaModel, maxSilenceSeconds: config.maxHighlightSilenceSeconds })).digest('hex');
       const cache = path.join(this.root, 'analyzer-cache', key);
       const ranked: Highlight[] = [];
-      const recoveryWarnings = new Set<string>(); let stopped: Error | null = null;
+      const recoveryWarnings = new Set<string>(); let stopped: Error | null = null; let reviewedCount = 0;
       for (let i = 0; i < candidates.length; i += 3) {
         const batch = candidates.slice(i, i + 3).map(context => context.materialize());
         const file = path.join(cache, `ranking-${i}.json`);
-        let rows = await readJson<Highlight[]>(file) || [];
-        try { rows = validateCachedRankings(rows, batch, true); }
-        catch { rows = []; recoveryWarnings.add('Invalid cached rankings were discarded and analyzed again.'); }
-        const missing = batch.filter(c => !rows.some(row => row.id === c.id));
+        const saved = await readJson<{ rankings: Highlight[]; reviewed: string[] }>(file);
+        let rows = saved?.rankings || []; let reviewed = saved?.reviewed || [];
+        try {
+          if (!Array.isArray(reviewed) || reviewed.some(id => !batch.some(c => c.id === id))) throw new Error('Invalid reviewed context IDs.');
+          rows = validateCachedRankings(rows, batch, true, true);
+        } catch { rows = []; reviewed = []; recoveryWarnings.add('Invalid cached rankings were discarded and analyzed again.'); }
+        const persist = () => writeJson(file, { rankings: rankingDecisions(rows), reviewed });
+        const missing = batch.filter(c => !reviewed.includes(c.id) && !rows.some(row => row.id === c.id));
         if (missing.length && !stopped) {
           const recovered = await recoverRankings(missing, [], cs => this.rank(cs, warning => recoveryWarnings.add(warning)), {
-            transcriptOnly: true,
+            transcriptOnly: true, durationMode: 'auto',
             onWarning: warning => recoveryWarnings.add(warning),
-            onAccepted: async accepted => { rows.push(...accepted); await writeJson(file, rankingDecisions(rows)); },
+            onAccepted: async accepted => { rows.push(...accepted); await persist(); },
+            onReviewed: async ids => { reviewed = [...new Set([...reviewed, ...ids])]; await persist(); },
           });
           stopped = recovered.error;
         }
         ranked.push(...rows);
+        reviewedCount += new Set([...reviewed, ...rows.map(h => h.id)]).size;
       }
-      if (!ranked.length) throw stopped || new Error('Ollama could not return valid transcript timings after smaller requests and retries. Completed rankings are saved; retry or choose a more capable model.');
+      if (!ranked.length && !reviewedCount) throw stopped || new Error('Ollama could not return valid transcript timings after smaller requests and retries. Completed rankings are saved; retry or choose a more capable model.');
       base.warnings.push(...recoveryWarnings);
-      if (ranked.length < candidates.length) base.warnings.push(`${candidates.length - ranked.length} reading context(s) could not be analyzed and were skipped. Valid results were retained; analyze again to retry missing work.`);
+      if (reviewedCount < candidates.length) base.warnings.push(`${candidates.length - reviewedCount} reading context(s) could not be analyzed and were skipped. Valid results were retained; analyze again to retry missing work.`);
       if (stopped) base.warnings.push(stopped.message);
       const best = selectBestHighlights(ranked, config.clipCount, config.minEngagementScore ?? 70);
       base.highlights = best.map(h => this.output(source, { id: h.id, start: h.start, end: h.end, title: h.title, description: h.explanation, score: h.score, viewCount: null, clipUrl: null, transcript: h.transcript, dataSource: 'transcript', confidence: 'transcript-supported' }));
-      base.status = base.highlights.length && ranked.length === candidates.length ? 'ready' : base.highlights.length ? 'partial' : 'unavailable';
+      base.status = base.highlights.length && reviewedCount === candidates.length ? 'ready' : base.highlights.length ? 'partial' : 'unavailable';
       base.confidence = base.highlights.length ? 'transcript-supported' : 'unavailable';
-      base.confidenceExplanation = 'Ollama chooses natural start/end boundaries from user-supplied transcript cues, within the official video duration, without a fixed clip length. Entertainment scores are local-model judgments, not calibrated probabilities. No audiovisual analysis occurred.';
+      base.confidenceExplanation = 'Ollama chooses natural start/end boundaries from user-supplied transcript cues, within the official video duration. Highlights require at least 30 meaningful seconds with no maximum duration; shorter candidates without valuable context are rejected. Entertainment scores are local-model judgments, not calibrated probabilities. No audiovisual analysis occurred.';
+      if (!base.highlights.length) base.warnings.push('No meaningful 30-second highlight met the selection criteria. No filler was added.');
       base.warnings.push('Transcript timing and association with this video are supplied by you; automatic verification against video/audio is unavailable.', `For faster analysis, shortlisted ${candidates.length} of ${contexts.length} reading contexts across the transcript. Up to ${config.clipCount} non-overlapping moments meeting ${config.minEngagementScore ?? 70}/100 engagement are retained. Shortlisting and model input boundaries can miss moments; scores require human review.`);
       return base;
     } finally { this.activeTranscript = false; }

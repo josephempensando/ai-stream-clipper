@@ -24,7 +24,7 @@ test('Ollama structured output constrains exact video-segment IDs and ranking co
 });
 
 test('transcript inference returns model-selected natural boundaries rather than the context window', async t => {
-  const context = { ...candidates[0]!, end: 180, cues: [{ start: 0, end: 12, text: 'Setup' }, { start: 12, end: 85, text: 'Payoff' }, { start: 85, end: 180, text: 'Next topic' }] };
+  const context = { ...candidates[0]!, end: 180, cues: [{ start: 0, end: 30, text: 'Setup' }, { start: 12, end: 85, text: 'Payoff' }, { start: 85, end: 180, text: 'Next topic' }] };
   t.mock.method(globalThis, 'fetch', async () => Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: 0, end: 85, score: 90, title: 'Complete moment', explanation: 'Includes the setup and payoff.' }] }) } }));
   const result = await rankBatch([context], [], { transcriptOnly: true });
   assert.equal(result[0]?.start, 0); assert.equal(result[0]?.end, 85);
@@ -40,17 +40,17 @@ test('transcript inference rejects missing, invented and out-of-context boundari
   }
 });
 
-test('recording inference accepts Ollama-chosen short and long ranges and restores supplied evidence', async t => {
+test('recording inference accepts Ollama-chosen 30-second and long ranges and restores supplied evidence', async t => {
   const contexts: Candidate[] = [
-    { id: 'short', start: 0, end: 200, heuristicScore: 10, transcript: 'Setup. Reaction. Next topic.', evidence: ['Scene change at 2s'], frameTimes: [0, 100], cues: [{ start: 0, end: 12, text: 'Setup. Reaction.' }, { start: 12, end: 200, text: 'Next topic.' }] },
+    { id: 'short', start: 0, end: 200, heuristicScore: 10, transcript: 'Setup. Reaction. Next topic.', evidence: ['Scene change at 2s'], frameTimes: [0, 100], cues: [{ start: 0, end: 30, text: 'Setup. Reaction.' }, { start: 30, end: 200, text: 'Next topic.' }] },
     { id: 'long', start: 200, end: 500, heuristicScore: 10, transcript: 'Complete story. Next topic.', evidence: [], frameTimes: [200, 350], cues: [{ start: 200, end: 390, text: 'Complete story.' }, { start: 390, end: 500, text: 'Next topic.' }] },
   ];
   t.mock.method(globalThis, 'fetch', async () => Response.json({ message: { content: JSON.stringify({ rankings: [
-    { id: 'short', start: 0, end: 12, score: 95, title: 'Reaction', explanation: 'The reaction completes here.', transcript: 'fabricated' },
+    { id: 'short', start: 0, end: 30, score: 95, title: 'Reaction', explanation: 'The reaction completes here.', transcript: 'fabricated' },
     { id: 'long', start: 200, end: 390, score: 90, title: 'Complete story', explanation: 'The payoff needs the full setup.' },
   ] }) } }));
   const highlights = await rankBatch(contexts, [], { chooseRanges: true });
-  assert.deepEqual(highlights.map(h => [h.start, h.end]), [[0, 12], [200, 390]]);
+  assert.deepEqual(highlights.map(h => [h.start, h.end]), [[0, 30], [200, 390]]);
   assert.equal(highlights[0]?.transcript, 'Setup. Reaction.');
   assert.deepEqual(highlights[0]?.evidence, ['Scene change at 2s']);
 });
@@ -67,9 +67,9 @@ test('natural inference requests one required result per ID instead of an array 
   t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
     const payload = JSON.parse(String(init.body));
     assert.deepEqual(payload.format.properties.rankings.required, ['a']);
-    return Response.json({ message: { content: JSON.stringify({ rankings: { a: { start: 0, end: 12, score: 90, title: 'Reaction', explanation: 'Complete reaction.' } } }), role: 'assistant' }, done: true, done_reason: 'stop' });
+    return Response.json({ message: { content: JSON.stringify({ rankings: { a: { start: 0, end: 30, score: 90, title: 'Reaction', explanation: 'Complete reaction.' } } }), role: 'assistant' }, done: true, done_reason: 'stop' });
   });
-  assert.equal((await rankBatch(candidates, [], { chooseRanges: true }))[0]?.end, 12);
+  assert.equal((await rankBatch(candidates, [], { chooseRanges: true }))[0]?.end, 30);
 });
 
 test('memory exhaustion retries with a smaller context and keeps the model-selected range', async t => {
@@ -77,10 +77,10 @@ test('memory exhaustion retries with a smaller context and keeps the model-selec
   t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
     sizes.push(JSON.parse(String(init.body)).options.num_ctx);
     if (sizes.length === 1) return Response.json({ error: 'model runner: unable to allocate memory' }, { status: 500 });
-    return Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: 0, end: 12, score: 90, title: 'Reaction', explanation: 'Complete reaction.' }] }) }, done: true });
+    return Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: 0, end: 30, score: 90, title: 'Reaction', explanation: 'Complete reaction.' }] }) }, done: true });
   });
   const highlights = await rankBatch(candidates, [], { chooseRanges: true });
-  assert.equal(highlights[0]?.end, 12);
+  assert.equal(highlights[0]?.end, 30);
   assert.equal(sizes.length, 2); assert.ok(sizes[1]! < sizes[0]!);
 });
 
@@ -94,7 +94,7 @@ test('large reading contexts are divided into overlapping complete cues before e
     assert.ok(Buffer.byteLength(prompt) < payload.options.num_ctx * 2);
     const input = JSON.parse(prompt.slice(prompt.lastIndexOf('\n') + 1)) as { id: string; cues: { start: number; end: number }[] }[];
     const cues = input[0]!.cues; seen.push(cues.map(c => c.start));
-    return Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: cues[0]!.start, end: cues[0]!.end, score: 80, title: 'Moment', explanation: 'Supported cue.' }] }) }, done: true });
+    return Response.json({ message: { content: JSON.stringify({ rankings: [{ id: 'a', start: cues[0]!.start, end: cues.at(-1)!.end, score: 80, title: 'Moment', explanation: 'Supported cue.' }] }) }, done: true });
   });
   const result = await rankBatch([context], [], { chooseRanges: true });
   assert.equal(result.length, 1); assert.ok(seen.length > 1);
@@ -114,8 +114,8 @@ test('malformed JSON retries an isolated context and keeps only the validated re
   let calls = 0;
   t.mock.method(globalThis, 'fetch', async () => {
     calls++;
-    return Response.json({ message: { content: calls === 1 ? '{incomplete' : JSON.stringify({ rankings: { a: { start: 0, end: 12, score: 90, title: 'Reaction', explanation: 'Supported.' } } }) } });
+    return Response.json({ message: { content: calls === 1 ? '{incomplete' : JSON.stringify({ rankings: { a: { start: 0, end: 30, score: 90, title: 'Reaction', explanation: 'Supported.' } } }) } });
   });
   const result = await recoverRankings(candidates, [], (cs, images) => rankBatch(cs, images, { chooseRanges: true }));
-  assert.equal(result.highlights[0]?.end, 12); assert.equal(result.error, null); assert.equal(calls, 2);
+  assert.equal(result.highlights[0]?.end, 30); assert.equal(result.error, null); assert.equal(calls, 2);
 });

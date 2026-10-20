@@ -13,12 +13,16 @@
     "test:ui": "tsx scripts/check-ui.ts",
     "test:twitch-ui": "tsx scripts/check-twitch-ui.ts",
     "test:analyzer-ui": "tsx scripts/check-analyzer-ui.ts",
-    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "test:platform-ui": "tsx scripts/run-duration-browser-checks.ts",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json && node scripts/copy-server-assets.cjs",
     "start": "node dist/server/server/index.js",
     "demo:recording": "tsx scripts/create-demo.ts",
     "smoke:local": "tsx scripts/smoke-local.ts",
     "smoke:retention": "tsx scripts/smoke-retention.ts",
-    "test:retention-ui": "tsx scripts/check-retention-ui.ts"
+    "test:retention-ui": "tsx scripts/check-retention-ui.ts",
+    "test:story-ui": "tsx scripts/check-story-ui.ts",
+    "smoke:story": "tsx scripts/smoke-story.ts",
+    "setup:story-voice": "tsx scripts/setup-story-voice.ts"
   },
   "keywords": [],
   "author": "",

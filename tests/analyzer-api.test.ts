@@ -11,7 +11,7 @@ async function apiFixture(t: TestContext) {
   const root = path.resolve('test-artifacts', `timestamp-api-${randomUUID()}`);
   const twitch = new TwitchClient({ clientId: 'client', secret: '', userToken: 'token' }, async () => Response.json({ data: [{ id: '123', title: 'Stream', user_id: '42', user_name: 'CaseOh', duration: '2h', thumbnail_url: '', url: 'https://www.twitch.tv/videos/123', created_at: '2026-10-09', view_count: 5 }] }));
   const youtube = new YouTubeClient('server-only-secret', async () => Response.json({ items: [{ id: 'abcdefghijk', snippet: { title: 'Stream', channelTitle: 'Creator' }, contentDetails: { duration: 'PT5M' }, status: { embeddable: true } }] }));
-  const analyzer = new TimestampAnalyzer(twitch, youtube, root, async cs => cs.map(c => ({ ...c, end: Math.min(c.end, c.start + 10), score: 70, title: 'Supported moment', explanation: 'Context supplied in the transcript.' })));
+  const analyzer = new TimestampAnalyzer(twitch, youtube, root, async cs => cs.map(c => ({ ...c, end: Math.min(c.end, c.start + 30), score: 70, title: 'Supported moment', explanation: 'Context supplied in the transcript.' })));
   const services = await createApp(root, undefined, { analyzer }); const server = services.app.listen(0, '127.0.0.1');
   await new Promise<void>(resolve => server.once('listening', resolve));
   t.after(() => { services.oauth.close(); services.twitchLive.close(); server.closeAllConnections(); server.close(); });
@@ -23,7 +23,7 @@ test('analyzer API returns honest YouTube unavailable state without a transcript
   assert.equal(response.status, 200); const data = await response.json() as { status: string; highlights: unknown[] };
   assert.equal(data.status, 'unavailable'); assert.deepEqual(data.highlights, []); assert.ok(!JSON.stringify(data).includes('server-only-secret')); assert.equal(f.store.jobs.size, 0);
 });
-test('permitted multipart transcript returns eight qualifying timestamps, no MP4 exports or media jobs', async t => {
+test('permitted multipart transcript returns five qualifying timestamps, no MP4 exports or media jobs', async t => {
   const f = await apiFixture(t);
   const form = (permission: string) => {
     const body = new FormData(); body.append('input', 'https://www.youtube.com/live/abcdefghijk'); body.append('permission', permission);
@@ -32,7 +32,7 @@ test('permitted multipart transcript returns eight qualifying timestamps, no MP4
   assert.equal((await fetch(`${f.base}/analyze`, { method: 'POST', body: form('false') })).status, 400);
   const response = await fetch(`${f.base}/analyze`, { method: 'POST', body: form('true') }); assert.equal(response.status, 200);
   const data = await response.json() as { highlights: { startTime: string; endTime: string; originalUrl: string }[]; dataSource: string };
-  assert.equal(data.highlights.length, 8); assert.equal(data.dataSource, 'transcript'); assert.ok(data.highlights.every(h => h.startTime && h.endTime && h.originalUrl.startsWith('https://www.youtube.com/watch?'))); assert.equal(f.store.jobs.size, 0);
+  assert.equal(data.highlights.length, 5); assert.equal(data.dataSource, 'transcript'); assert.ok(data.highlights.every(h => h.startTime && h.endTime && h.originalUrl.startsWith('https://www.youtube.com/watch?'))); assert.equal(f.store.jobs.size, 0);
 });
 test('analyzer rejects hostile URLs, untimed files, oversized attachments and foreign origins', async t => {
   const f = await apiFixture(t);

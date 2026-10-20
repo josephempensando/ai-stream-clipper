@@ -12,12 +12,12 @@ function context(cues: Segment[], duration = cues.at(-1)!.end): Candidate {
 }
 const row = { start: 0, end: 15, score: 90, title: 'Complete moment', description: 'A source-grounded account of the moment.', explanation: 'Includes the complete setup and conclusion.' };
 
-test('auto inference preserves short reactions, whole Q&A, long explanations and recording edges', async t => {
+test('auto inference preserves meaningful context, whole Q&A, long explanations and recording edges', async t => {
   const examples = [
-    [{ start: 0, end: 15, text: 'Wow! I finally solved it!' }],
+    [{ start: 0, end: 20, text: 'Here is the difficult problem.' }, { start: 20, end: 30, text: 'Wow! I finally solved it!' }],
     [{ start: 0, end: 12, text: 'Why does the sky change color?' }, { start: 12, end: 95, text: 'Here is the full answer and its conclusion.' }],
     [{ start: 0, end: 20, text: 'Let me explain the problem.' }, { start: 20, end: 160, text: 'The detailed reasoning follows.' }, { start: 160, end: 205.5, text: 'That is why the result matters.' }],
-    [{ start: 290, end: 300, text: 'And that completes the story.' }],
+    [{ start: 270, end: 300, text: 'And that completes the story.' }],
   ];
   let source = context(examples[0]!);
   t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
@@ -59,7 +59,7 @@ test('auto inference can decline a context without fabricating a clip', async t 
 });
 
 test('configurable clip count supports rendering more than five varied non-overlapping drafts', () => {
-  const clips = Array.from({ length: 7 }, (_, i) => ({ id: String(i), start: i * 250, end: i * 250 + (i % 2 ? 205 : 15) }));
+  const clips = Array.from({ length: 7 }, (_, i) => ({ id: String(i), start: i * 250, end: i * 250 + (i % 2 ? 205 : 30) }));
   assert.doesNotThrow(() => validateEdits(clips, 1800));
   assert.equal(renderSchema.parse({ clips, options: { layout: 'blur', cropX: 0.5, subtitles: false } }).clips.length, 7);
 });

@@ -16,6 +16,7 @@ import { validateCorrections } from './retention-captions.js';
 import type { Evidence } from '../shared/types.js';
 import type { RetentionEdl } from '../shared/retention.js';
 import { readJson } from './store.js';
+import { validateExportDurations } from '../shared/duration.js';
 
 export function prepareRetention(job: Job, edit: ClipEdit, options: RenderOptions, transcript: Transcript, evidence: Evidence[] = []): { edl: RetentionEdl; options: RenderOptions } {
   const h = job.highlights.find(h => h.id === edit.id)!;
@@ -41,10 +42,12 @@ export function videoFilter(options: RenderOptions): string {
 export async function renderClips(job: Job, source: string, dir: string, edits: ClipEdit[], options: RenderOptions, transcript: Transcript, progress: (stage: string, percent: number) => Promise<void>): Promise<OutputClip[]> {
   validateEdits(edits, job.media.duration);
   if (edits.some(e => !job.highlights.some(h => h.id === e.id))) throw new Error('Unknown highlight ID.');
-  await mkdir(dir, { recursive: true });
   const outputs: OutputClip[] = [];
   const decisions: Record<string, RetentionEdl> = {};
   const evidence = await readJson<Evidence[]>(path.join(dir, '..', 'evidence.json')) || [];
+  const durations = edits.map(edit => ({ id: edit.id, duration: options.retention ? prepareRetention(job, edit, options, transcript, evidence).edl.duration : edit.end - edit.start }));
+  validateExportDurations(durations, options.destination);
+  await mkdir(dir, { recursive: true });
   for (const [index, edit] of edits.entries()) {
     const stem = `clip-${String(index + 1).padStart(2, '0')}`; const file = `${stem}.mp4`;
     const part = path.join(dir, `${stem}.partial.mp4`); const target = path.join(dir, file);
@@ -77,7 +80,7 @@ export async function renderClips(job: Job, source: string, dir: string, edits: 
   });
   await writeJson(path.join(dir, 'results.json'), {
     version: 1, jobId: job.id, source: job.source, name: job.name, mediaHash: job.mediaHash,
-    vodId: job.vodId, vodOffset: job.vodOffset, durationMode: 'auto', clipCount: job.clipCount ?? config.clipCount, minEngagementScore: job.minEngagementScore ?? config.minEngagementScore ?? 70,
+    vodId: job.vodId, vodOffset: job.vodOffset, durationMode: 'auto', minDuration: 30, clipCount: job.clipCount ?? config.clipCount, minEngagementScore: job.minEngagementScore ?? config.minEngagementScore ?? 70,
     models: { whisper: transcript.model, ollama: transcript.model === 'test-double' ? 'test-double' : config.ollamaModel, vision: config.vision },
     resolution: '1080x1920', options, warnings: job.warnings, highlights: exportedHighlights, outputs, editDecisionLists: decisions, captionCorrections: edits.map(e => ({ id: e.id, captions: e.adjustments?.captions || [] })), audioAssets: job.audioAssets || [],
     purpose: 'draft', rights: normalizeRights(job.rights), rightsAssessment: assessRights(job.rights), rightsSnapshotAt: new Date().toISOString(),

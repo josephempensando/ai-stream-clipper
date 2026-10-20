@@ -1,5 +1,7 @@
 # Automatic clip duration update
 
+> Historical report. Current behavior is documented in [Narrative duration policy](minimum-duration-update.md): minimum 30 seconds, auto duration without a maximum, five clips by default, and separate destination export review.
+
 Historical duration-change report. Current clip-count defaults and context coverage are documented in [Faster focused highlights](focused-highlights-update.md).
 
 The recording editor defaults to `durationMode=auto`. Ollama chooses the start and conclusion of each moment from actual Whisper cue boundaries, with no minimum, maximum or target duration. The previous fixed-duration policy is removed. Five non-overlapping highlights remain the default; the dashboard and API accept a count of 1–20.

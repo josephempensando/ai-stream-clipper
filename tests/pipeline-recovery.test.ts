@@ -12,11 +12,11 @@ const highlight = (c: Candidate): Highlight => ({ ...c, start: c.cues![0]!.start
 async function fixture() {
   const root = path.resolve('test-artifacts', `recovery-${randomUUID()}`); await mkdir(root, { recursive: true });
   const file = path.join(root, 'owned.mp4');
-  await ffmpeg(['-f', 'lavfi', '-i', 'color=c=blue:s=160x90:r=5:d=3', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=3', '-t', '3', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', file]);
-  const job: Job = { id: randomUUID(), name: 'owned.mp4', createdAt: new Date().toISOString(), status: 'analyzing', stage: 'Ranking', progress: 65, media: { duration: 3, width: 160, height: 90, hasAudio: true }, mediaHash: 'owned', source: 'upload', vodId: null, vodOffset: 0, highlights: [], outputs: [], warnings: [], error: null, renderOptions: null };
+  await ffmpeg(['-f', 'lavfi', '-i', 'color=c=blue:s=160x90:r=5:d=90', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=90', '-t', '90', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', file]);
+  const job: Job = { id: randomUUID(), name: 'owned.mp4', createdAt: new Date().toISOString(), status: 'analyzing', stage: 'Ranking', progress: 65, media: { duration: 90, width: 160, height: 90, hasAudio: true }, mediaHash: 'owned', source: 'upload', vodId: null, vodOffset: 0, highlights: [], outputs: [], warnings: [], error: null, renderOptions: null };
   return { root, file, job };
 }
-const speech = () => Promise.resolve([0, 1, 2].map(start => ({ start, end: start + 1, text: 'Wait! A complete reaction.' })));
+const speech = () => Promise.resolve([0, 30, 60].map(start => ({ start, end: start + 30, text: 'Wait! A complete reaction.' })));
 
 test('duplicate IDs in a batch recover with isolated candidates and bounded retries', async () => {
   const f = await fixture(); const attempts = new Map<string, number>();
@@ -26,7 +26,7 @@ test('duplicate IDs in a batch recover with isolated candidates and bounded retr
     return [{ ...highlight(c), id: attempt === 1 ? 'invented-id' : c.id }];
   } };
   const result = await analyzeRecording(f.job, f.file, f.root, async () => {}, adapters);
-  assert.deepEqual(result.highlights.map(h => [h.start, h.end]), [[0, 1], [1, 2], [2, 3]]);
+  assert.deepEqual(result.highlights.map(h => [h.start, h.end]), [[0, 30], [30, 60], [60, 90]]);
   assert.ok([...attempts.values()].every(count => count === 2));
   assert.ok(result.warnings.some(w => /retr|smaller|isolat/i.test(w)));
 });

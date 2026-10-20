@@ -1,5 +1,6 @@
 import type { SourceRights } from './rights.js';
 import type { AudioAsset, ClipRetention, RetentionAnalysis, RetentionSettings } from './retention.js';
+import type { ExportDestination } from './duration.js';
 export interface Word { start: number; end: number; word: string }
 export interface Segment { start: number; end: number; text: string; words?: Word[] }
 export interface Transcript { segments: Segment[]; language: string; model: string }
@@ -14,10 +15,11 @@ export interface Highlight extends Candidate {
   title: string; explanation: string; score: number;
   // Optional for persisted projects created before automatic duration metadata.
   startTime?: number; endTime?: number; duration?: number; description?: string;
+  aiSelectedDuration?: number;
   reasonForSelection?: string; engagementScore?: number;
 }
 export interface MediaInfo { duration: number; width: number; height: number; hasAudio: boolean }
-export interface RenderOptions { layout: 'blur' | 'crop'; cropX: number; subtitles: boolean; retention?: RetentionSettings | undefined }
+export interface RenderOptions { layout: 'blur' | 'crop'; cropX: number; subtitles: boolean; retention?: RetentionSettings | undefined; destination?: ExportDestination | undefined }
 export interface ClipEdit { id: string; start: number; end: number; adjustments?: ClipRetention | undefined }
 export interface OutputClip { id: string; start: number; end: number; title: string; file: string }
 export type Status = 'uploaded' | 'queued' | 'analyzing' | 'review' | 'rendering' | 'complete' | 'error';
@@ -34,7 +36,7 @@ export interface Job {
   durationMode?: 'auto';
   clipCount?: number | 'all';
   minEngagementScore?: number;
-  selectionVersion?: 1 | 2;
+  selectionVersion?: 1 | 2 | 3;
 }
 export interface Vod {
   id: string; title: string; user_id: string; user_name: string; duration: string;
@@ -43,7 +45,7 @@ export interface Vod {
 export interface Health {
   ffmpeg: boolean; ffprobe: boolean; whisper: boolean; ollama: boolean;
   model: string; whisperModel: string; twitch: boolean; clipAuth: boolean;
-  editorDefaults?: { durationMode: 'auto'; clipCount: number | 'all'; minEngagementScore?: number };
+  editorDefaults?: { durationMode: 'auto'; clipCount: number | 'all'; minEngagementScore?: number; minDuration?: number };
 }
 export interface PublicClip {
   id: string; url: string; embed_url: string; broadcaster_id: string; broadcaster_name: string;

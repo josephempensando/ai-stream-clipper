@@ -1,8 +1,8 @@
 # AI Retention Editing Engine
 
-The engine extends the existing **Analyze authorized recording** workflow. Enable **Auto Edit** and run **Analyze stream**, or open an analyzed recording and choose **Regenerate**. Use the existing maximum-highlight control to request one through eight candidates. Fewer may qualify. No clip length is imposed.
+The engine extends the existing **Analyze authorized recording** workflow. Enable **Auto Edit** and run **Analyze stream**, or open an analyzed recording and choose **Regenerate**. Use the existing maximum-highlight control to request one through eight candidates. Five is the default; fewer may qualify. Every clip must last at least 30 seconds, with no analysis maximum. Pause shortening may not reduce the final edit below 30 seconds; review the warning and disable it or revise meaningful context. Destination limits are validated separately during export without trimming. See [Narrative duration policy](minimum-duration-update.md).
 
-Existing Twitch discovery/live tools, Twitch/YouTube timestamp analysis, approved media imports, MP4 uploads, rights review and ordinary clip exports remain available. There is no Story Narrator implementation in this checkout; none was removed or replaced.
+Existing Twitch discovery/live tools, Twitch/YouTube timestamp analysis, approved media imports, MP4 uploads, rights review and ordinary clip exports remain available. The separate **Story Narrator** tab adds local Piper narration, Whisper-aligned animated captions and natural-duration vertical story videos. It reuses caption controls and the FFmpeg queue without applying clipping duration rules or changing retention/copyright review. See [Story Narrator setup](../README.md#story-narrator-setup-and-usage).
 
 ## Analysis and editing
 

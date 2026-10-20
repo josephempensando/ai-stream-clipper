@@ -1,6 +1,6 @@
 # Cutline — AI Livestream Highlight Analyzer
 
-A local React/Vite and Node.js/TypeScript dashboard for finding **up to eight strong, non-overlapping livestream highlights**. The recording dashboard offers a maximum of five through eight highlights. Attach a legitimately obtained transcript for Twitch or YouTube and let local Ollama choose each moment’s natural start and end, then open the original stream and clip manually. Twitch can also discover existing public clips without a transcript. Timestamp analysis does not download platform videos or generate MP4s. The existing authorized-recording workflow remains available with Whisper, Ollama and FFmpeg.
+A local React/Vite and Node.js/TypeScript dashboard for finding **strong, non-overlapping livestream highlights**, with five by default and a configurable count of 1–8. AI-selected clips require at least 30 seconds with no analysis maximum. Attach a legitimately obtained transcript for Twitch or YouTube and let local Ollama choose each moment’s natural start and end, then open the original stream and clip manually. Twitch can also discover existing public clips without a transcript. Timestamp analysis does not download platform videos or generate MP4s. The existing authorized-recording workflow remains available with Whisper, Ollama and FFmpeg.
 
 ## Quick start: timestamp analysis
 
@@ -76,12 +76,12 @@ The dashboard preserves the existing design and provides four modes:
 
 1. Choose an MP4 and confirm permission to process it privately. This processing confirmation and possession of a file do not establish publishing rights. Record the original creator, source URL, rights category, permission/license evidence, license conditions, allowed platforms/uses, and expiration in **Source rights**. Incomplete or unknown publishing rights do not block private analysis. Upload it; the server verifies its video stream and duration. If matching a VOD excerpt, set the excerpt's starting VOD second before upload. Recording timestamps remain absolute within the uploaded file; `results.json` also contains the corresponding VOD offsets.
 2. Ensure all local engines are ready, then click **Analyze stream**. Progress reports cached chunk transcription, audio/scene analysis and model ranking.
-3. All recordings use **Auto · AI determines each clip duration** (`durationMode=auto`). There is no fixed minimum or maximum highlight length: a reaction can last 15 seconds, while a complete explanation can exceed two minutes. Ollama chooses actual transcript boundaries around completed sentences, whole questions and answers, jokes, reactions and finished stories, preserving the speaker's meaning. It favors hooks, emotional impact and standalone coherence, and avoids irrelevant repetition or silence. Unsupported timestamps and long interior silent gaps are rejected; a context without a suitable moment may return no highlight. Choose **Maximum highlights** from five through eight (default eight). Set **Minimum engagement score** (default 70/100) to filter subjective model judgments; weaker moments are not added to fill the limit. A shortlist of at most 24 reading contexts bounds local inference work. Results show timestamps, each selected duration, source excerpts, selection reasons, engagement judgments and heuristic evidence scores. Preview highlights, edit start/end seconds, and select clips for rendering. Manual ranges must stay within the recording and not overlap; review edits for sentence continuity and context before exporting.
+3. All recordings use **Auto · AI duration · minimum 30 seconds** (`durationMode=auto`). Every AI-selected clip must last at least 30 seconds, with no maximum duration during analysis. Ollama preserves the complete hook, setup, escalation and payoff. Shorter moments qualify only when surrounding context adds narrative value; otherwise they are rejected without filler. Complete stories may exceed several minutes. Ollama chooses actual transcript boundaries around completed sentences, whole questions and answers, jokes, reactions and finished stories, preserving the speaker's meaning. It favors hooks, emotional impact and standalone coherence, and avoids irrelevant repetition or silence. Unsupported timestamps and long interior silent gaps are rejected; a context without a suitable moment may return no highlight. Choose **Maximum highlights** from one through eight (default five). Set **Minimum engagement score** (default 70/100) to filter subjective model judgments; weaker moments are not added to fill the limit. A shortlist of at most 24 reading contexts bounds local inference work. Results show timestamps, the original AI-selected duration and current adjusted duration, source excerpts, selection reasons, engagement judgments and heuristic evidence scores. Preview highlights, edit start/end seconds, and select clips for rendering. Manual ranges must last at least 30 seconds, stay within the recording and not overlap; review edits for sentence continuity and context before exporting.
 4. Choose blurred padding (default) or fill-crop with a horizontal position. Optionally burn in transcript subtitles. Captions use a smaller font at the bottom center with a safe margin; long transcript passages are split into short captions, with timing estimated within each Whisper segment. Generate clips and download MP4s, `results.json`, or ZIP. ZIP includes SRT sidecars when enabled. Generate existing clips again to apply subtitle styling changes; analysis does not need to run again.
 
 Exported MP4s follow selected ranking order (`clip-01.mp4`, `clip-02.mp4`, …). Fewer files are returned when the recording cannot supply the requested number of valid non-overlapping highlights. Each FFmpeg export uses its own start time and exact `end - start` duration. Output is 1080×1920, 30 fps, H.264/AAC with fast-start metadata. Trimming uses one input timeline for video and audio; captions intersect the chosen range and rebase to clip time.
 
-Set `DURATION_MODE=auto`, `HIGHLIGHT_COUNT=8`, `HIGHLIGHT_MIN_SCORE=70`, `HIGHLIGHT_CONTEXT_BUDGET=24`, and optionally `MAX_HIGHLIGHT_SILENCE_SECONDS=8` in `.env`. The context budget controls speed versus search coverage; increasing it sends more contexts to Ollama. It does not set clip length. The silence threshold checks gaps between transcript cues, not acoustic silence. `/api/jobs/:id/analyze` accepts `{ "durationMode": "auto", "clipCount": 8, "minEngagementScore": 70 }`; upload and approved import accept the same settings. Numeric API counts from 1–8 remain supported; legacy `"all"` requests map to eight. Intake requests without a count use the configured default. Saved unlimited projects migrate to eight when loaded; analyze again to replace old unlimited results. Count/score changes reuse shortlist rankings. The shortlist cache version changes once for this update while keeping completed Whisper transcription and media evidence. Highlight JSON includes numeric seconds in `startTime`, `endTime`, and `duration`, plus `title`, `description`, `reasonForSelection`, and `engagementScore` (0–100). Existing `start`, `end`, `explanation`, and `score` fields remain compatible. Timestamps and duration are computed from validated source boundaries, never invented by metadata generation. MP4 drafts have no platform duration cap; any future destination limit must be an explicit export setting and must not silently truncate an analyzed story.
+Set `CLIP_MIN_DURATION=30`, `CLIP_DURATION_MODE=auto`, `CLIP_COUNT=5`, `HIGHLIGHT_MIN_SCORE=70`, `HIGHLIGHT_CONTEXT_BUDGET=24`, and optionally `MAX_HIGHLIGHT_SILENCE_SECONDS=8` in `.env`. The context budget controls speed versus search coverage; increasing it sends more contexts to Ollama. It does not set clip length. The silence threshold checks gaps between transcript cues, not acoustic silence. `/api/jobs/:id/analyze` accepts `{ "durationMode": "auto", "clipCount": 5, "minEngagementScore": 70 }`; upload and approved import accept the same settings. Numeric API counts from 1–8 remain supported; legacy `"all"` requests map to eight. Intake requests without a count use the configured default. Saved unlimited projects migrate to eight when loaded; analyze again to replace old unlimited results. Count/score changes reuse shortlist rankings. The shortlist cache version changes once for this update while keeping completed Whisper transcription and media evidence. Highlight JSON includes numeric seconds in `startTime`, `endTime`, `duration`, and `aiSelectedDuration`, plus `title`, `description`, `reasonForSelection`, and `engagementScore` (0–100). Existing `start`, `end`, `explanation`, and `score` fields remain compatible. Timestamps and duration are computed from validated source boundaries, never invented by metadata generation. Unrestricted private drafts have no maximum duration. For platform-specific exports, enter **Destination platform** and its applicable **Platform limit (seconds)**. The backend validates final edited durations separately, returning HTTP 409 `DURATION_REVIEW_REQUIRED` when a clip exceeds that limit or pause shortening makes it less than 30 seconds. Review boundaries, disable pause shortening, or explicitly choose an unrestricted draft; the app never trims to a platform maximum or adds filler. Legacy `DURATION_MODE` and `HIGHLIGHT_COUNT` remain fallback aliases. See [Narrative duration policy](docs/minimum-duration-update.md) for export payloads and migration details.
 
 ### Copyright-aware editor: Phase 1
 
@@ -177,8 +177,84 @@ The JSON file uses the rights form's fields. `--authorized` confirms processing 
 
 In restricted Codex sandboxes, Node may fail to resolve parent directories or write its global npm cache. Use a workspace npm cache (`--cache .tools/npm-cache`) and Node's `--preserve-symlinks --preserve-symlinks-main` flags for CLI entry points; ordinary local installations do not usually need them.
 
-## Repository map
+## Story Narrator setup and usage
+
+Open **Story Narrator** in the sidebar. Paste your script, select a stock voice and speed, upload an authorized MP4, confirm footage permission, and generate. Text is narrated as supplied; no Ollama rewrite or invented additions are applied. The existing clipping, Retention Engine and copyright review tools remain available in Workbench. Story duration follows actual narration audio, including stories shorter than 30 seconds or longer than a minute. The clipping minimum of 30 seconds does not apply to stories.
+
+Install **Python 3.11**, the existing local **openai-whisper==20250625**, and **piper-tts==1.8.0** into the project virtual environment. FFmpeg/ffprobe use the existing bundled binaries or configured paths. On Windows PowerShell:
+
+```powershell
+# Create the environment only if it does not already exist:
+rtk proxy py -3.11 -m venv .venv
+rtk proxy .venv\Scripts\python.exe -m pip install openai-whisper==20250625 piper-tts==1.8.0
+rtk proxy .venv\Scripts\python.exe -m pip check
+rtk proxy .venv\Scripts\python.exe -m piper.download_voices en_US-lessac-medium --data-dir data/piper-voices
+rtk proxy .venv\Scripts\python.exe -m piper.download_voices en_US-ryan-medium --data-dir data/piper-voices
+rtk proxy npm run setup:story-voice
+```
+
+The voice menu includes **Woman · Lessac** (`en_US-lessac-medium`, the default), **Man · Ryan** (`en_US-ryan-medium`), and **Childlike · synthetic style** (`en_US-lessac-childlike`). The childlike preset reuses Lessac with a three-semitone pitch increase and tempo compensation; it is a processed stock voice, not a recorded child model. Speaking speed remains independently adjustable. Preview and full narration use the same processing; captions align to the resulting audio and its measured duration.
+
+Models require adjacent `.onnx` and `.onnx.json` files in `data/piper-voices`. `setup:story-voice` merges missing presets from [the registry example](assets/story/voices.example.json) into `voices.json`, preserving custom entries and existing model settings. Rerun it on existing installations after downloading Ryan. It relabels the original default Lessac entry for clarity; saved voice IDs remain compatible. Missing models stay disabled. Only registry entries with `permitted: true` and both installed files appear as usable voices. Registry pitch presets accept finite values from −6 to +6 semitones. The registry is an operator permission decision: review the [Lessac model card and dataset terms](https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD), [Ryan model card](https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ryan/medium/MODEL_CARD), and [Piper runtime GPL-3.0 license](https://github.com/OHF-Voice/piper1-gpl/blob/main/LICENSE.md) separately. Do not infer model or publishing rights from the runtime or repository license. Do not add unauthorized cloned or impersonated voices.
+
+Set these in `.env` (restart the server after changes):
+
+```dotenv
+PIPER_PYTHON=.venv/Scripts/python.exe
+PIPER_VOICES_DIR=./data/piper-voices
+PIPER_DEFAULT_VOICE=en_US-lessac-medium
+PIPER_TIMEOUT_MS=180000
+STORY_MAX_SCRIPT_CHARS=30000
+STORY_TTS_CHUNK_CHARS=800
+WHISPER_PATH=.venv/Scripts/whisper.exe
+WHISPER_MODEL=base
+WHISPER_LANGUAGE=en
+```
+
+Linux/macOS use `.venv/bin/python` and `.venv/bin/whisper`. These are executable paths, not shell commands. Model downloads require network access once; synthesis and captioning run locally afterward. Whisper downloads its configured model on first transcription unless it is already cached. The default registry is English; add other permitted stock voices with the correct language metadata after reviewing their individual terms.
+
+File-input WAV check (the short story is original sample text):
+
+```powershell
+rtk proxy .venv\Scripts\python.exe -m piper --model data/piper-voices/en_US-lessac-medium.onnx --config data/piper-voices/en_US-lessac-medium.onnx.json --input-file assets/story/short.txt --output-file data/piper-check.wav --length-scale 1 --sentence-silence 0.12
+rtk proxy npm run smoke:story
+```
+
+The smoke command generates original five-second background footage at `assets/story/sample.mp4`, narrates the original [short](assets/story/short.txt) and [long](assets/story/long.txt) stories, and runs real Piper, Whisper and FFmpeg. It checks complete script alignment, a short output below 30 seconds, a long output above 60 seconds, vertical dimensions, final caption, and video/audio duration. Output MP4s, timing manifests and `validation.json` are saved under a unique ignored `test-artifacts/story-smoke-*` directory. `-- --short-only` or `-- --long-only` runs one case; add `--voice en_US-ryan-medium` or `--voice en_US-lessac-childlike` to test another preset. This is separate from tests that use fixtures and generated tones; automated alignment checks do not replace human listening or watching the draft.
+
+Speech is chunked at sentence/paragraph or word boundaries (default 800 characters) without dropping source text. Unsupported words longer than a chunk are rejected. Piper uses 120 ms sentence silence; paragraph chunk boundaries extend the gap by 160 ms to 280 ms. WAVs normalize to mono 48 kHz PCM and concatenate without speech crossfades. Actual chunk durations define caption offsets. Whisper aligns every script token, allowing case/punctuation, supported English contractions, numbers below 10,000 and equivalent AM/PM clock formatting (for example `3:07 AM` versus `307am`). Story transcription uses deterministic, independent decoding windows. A failed match retries once with short proper-name hints copied from the source; the full narrative is not supplied as a continuation prompt because it can induce repeated/hallucinated text. Unmatched words still cause `CAPTION_ALIGNMENT_REVIEW_REQUIRED`, with the chunk number and nearby source word; the app never invents evenly spaced timestamps. Karaoke, fade and plain styling share these timings; no recognition-derived text replaces the original story.
+
+Background fitting trims longer footage, slows gently when 0.75–1× covers narration, or creates a bounded tail-to-head dissolve loop. The explicit **Slow to 0.75× then loop** option is also available. Original footage audio is muted by default. Enabled background audio and optional music are volume-adjusted, mixed and ducked under normalized narration. Music requires permission, owned/licensed status and provenance, and is limited to **100 MiB while streaming**. MP4 footage uses `MAX_UPLOAD_GB`. Final output is 1080×1920, 30 fps, H.264/yuv420p with AAC 48 kHz and faststart. Preview the composition and audio before sharing.
+
+Jobs are persisted separately in `DATA_DIR/story-videos/<uuid>`; one story processes at a time with at most 20 active/waiting attempts. Cancel waits for owned engine processes to stop, then cleans partial work. Restarted attempts become retryable errors. Regeneration reuses retained source uploads; a failed/cancelled regeneration keeps the previous successful draft downloadable. Successful inputs, narration, captions and private metadata remain local; there is no automatic publishing, cloud upload, or platform posting. Stop the server before manually removing old story directories. Runtime voice previews have a separate queue (one active, two pending), expire after 15 minutes, and are deleted when replaced or on shutdown/startup cleanup.
+
+If ASR spelling differs from the known Piper script, Story Narrator can refine it with **Whisper cross-attention/DTW alignment** against the actual generated audio. Recognition anchors choose short audio windows; they do not supply guessed per-word times. The fallback requires sufficient anchor coverage, actual speech energy, positive monotonic word spans and model confidence, followed by complete original-script validation. Low text likelihood (for example uppercase emphasis) requires independent recognition of the same word overlapping at least half its aligned span. Unsupported alignment still requests review. Both Piper and Whisper must be installed in `PIPER_PYTHON` for this fallback; the setup above installs them together. A warning identifies chunks using this refinement so pronunciations can be reviewed. This applies only to generated narration, leaving source-recording transcription and clipping unchanged.
+
+Private endpoints use the existing loopback/origin restrictions and `Cache-Control: no-store`:
+
+| Method | Endpoint | Behavior |
+| --- | --- | --- |
+| GET | `/api/story-videos/voices` | Engine readiness and public stock voice catalog |
+| POST | `/api/story-videos/voice-previews` | `{text, voiceId, speed}` → 202 preview job |
+| GET / DELETE | `/api/story-videos/voice-previews/:id` | Poll / cancel and delete |
+| GET | `/api/story-videos/voice-previews/:id/audio` | Completed WAV |
+| POST | `/api/story-videos` | Multipart `settings` JSON, `background` MP4, optional `music` → 202 |
+| GET | `/api/story-videos` | Saved summaries (no full scripts or local paths) |
+| GET | `/api/story-videos/:id` | Private full settings, status, progress, successful URLs |
+| POST | `/api/story-videos/:id/cancel` | Stop queued/running attempt |
+| POST | `/api/story-videos/:id/regenerate` | New settings JSON; reuse retained inputs → 202 |
+| GET | `/api/story-videos/:id/preview` | Range-capable successful MP4 |
+| GET | `/api/story-videos/:id/download` | Named MP4 attachment |
+| GET | `/api/story-videos/:id/captions` | Successful SRT attachment |
+
+Errors return `{error, code}` with validation 400, missing 404, state/review 409/422, size 413, queue 429, or setup 503. No user-supplied paths are accepted. Preview and download refer only to successfully promoted artifacts. Other Cutline tabs remain usable if Piper is absent.
+
+Validation: `rtk npm test`, `rtk proxy npm run typecheck`, `rtk proxy npm run build`, `rtk proxy npm run test:story-ui`, `rtk proxy npm run test:ui`, and `rtk proxy npm run test:platform-ui`. Build before browser checks. The Story UI check uses controlled API responses; `smoke:story` uses the actual local engines.
+
+The aligner's pure audio-evidence regression checks also run without loading a model: `rtk proxy .venv\Scripts\python.exe tests/story_forced_alignment_test.py` (use `.venv/bin/python` on Linux/macOS).
 
 The [AI Retention Editing Engine guide](docs/retention-engine.md) documents Auto Edit, narrative evidence, EDLs, karaoke captions, audio provenance, preview/export controls, verification commands and current model limitations.
+
+## Repository map
 
 `src/client/`: dashboard and styles; `src/shared/`: types/request rules; `src/server/`: API, Twitch, job storage/queue, media, models, analysis and rendering; `tests/`: automated checks; `scripts/`: generated-recording and live-engine smoke utilities. `data/`, `.env`, generated test artifacts, build output and dependencies are ignored. No cloud model API is used.
